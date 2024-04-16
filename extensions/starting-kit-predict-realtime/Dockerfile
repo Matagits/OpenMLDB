@@ -1,7 +1,19 @@
-FROM harbor.4pd.io/lab-platform/inf/python:3.9
-ADD . /root/test
-WORKDIR /root/test 
-EXPOSE 80
-RUN pip install -r requirements.txt -i https://nexus.4pd.io/repository/pypi-all/simple
-CMD python main.py 
+# 使用基础镜像
+FROM 4pdosc/openmldb:0.8.5
 
+ADD . /root/test
+WORKDIR /root/test
+
+# 安装 Python 3.9
+RUN apt-get update && \
+    apt-get install -y python3.9 && \
+    apt-get install -y python3-pip && \
+    pip install -r requirements.txt -i https://nexus.4pd.io/repository/pypi-all/simple
+
+# 设置 Python 3.9 为默认版本
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 1
+
+EXPOSE 80
+
+# 启动命令
+CMD ["/bin/bash", "-c", "/work/init.sh && python3 main.py"]
