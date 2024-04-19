@@ -1,63 +1,71 @@
 import openmldb.dbapi
 import pandas as pd
-from sqlalchemy import create_engine, text
-from sqlalchemy import Column, Date, Integer, String, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-
+from numpy import dtype
+from logger import logger
 
 db = None
-engine = None
+cursor = None
 
 
 def init():
-    # global db
-    # db = openmldb.dbapi.connect(zk="0.0.0.0:2181", zkPath="/openmldb")
-    global engine
-    engine = create_engine('mysql+pymysql://root:root@127.0.0.1:3307/db1', echo=True)
+    logger.error()
+    global db, cursor
+    db = openmldb.dbapi.connect(zk="0.0.0.0:2181", zkPath="/openmldb")
+    cursor = db.cursor()
+    # cursor.execute("CREATE DATABASE db1")
+    cursor.execute("USE db1")
 
 
 def read():
-    query = "SELECT * FROM t2"
-    with engine.connect() as conn:
-        df = pd.read_sql(query, conn.connection)
-    print(df.head())
+    pass
 
 
 def write(df, table_name):
-    insert_sql_list = []
+    dtypes = df.dtypes.to_dict()
+    col_infos = []
+    timestamp_cols = []
+    for col_name, raw_type in dtypes.items():
+        if raw_type == dtype('int32'):
+            col_type = 'int'
+        elif raw_type == dtype('int64'):
+            col_type = 'bigint'
+        elif raw_type == dtype('float64'):
+            col_type = 'double'
+        elif raw_type == dtype('bool'):
+            col_type = 'bool'
+        elif raw_type == dtype('<M8[ns]'):
+            col_type = 'timestamp'
+            timestamp_cols.append(col_name)
+        else:
+            col_type = 'string'
+        col_infos.append(col_name + " " + col_type)
+    df[timestamp_cols] = (df[timestamp_cols].astype(dtype('int64')) / 1000000).astype(dtype('int64'))
+
+    sql = f"CREATE TABLE {table_name} ({', '.join(col_infos)})"
+    cursor.execute(sql)
+
     for index, row in df.iterrows():
         values_str = ', '.join([f"'{value}'" if isinstance(value, str) else str(value) for value in row])
         insert_sql = f"INSERT INTO {table_name} ({', '.join(df.columns)}) VALUES ({values_str});"
-        insert_sql_list.append(insert_sql)
-    with engine.connect() as conn:
-        for sql in insert_sql_list:
-            print(sql)
-            conn.execute(text(sql))
-    print("Data written to MySQL table successfully!")
+        cursor.execute(insert_sql)
 
 
 def test():
     data = {'id': [1, 2, 3],
             'name': ['Alice', 'Bob', 'Charlie'],
-            'age': [25, 30, 35]}
+            'age': [25, 30, 35],
+            'score': [1.1, 2.2, 3.3],
+            'ts': [pd.Timestamp.utcnow().timestamp(), pd.Timestamp.utcnow().timestamp(),
+                   pd.Timestamp.utcnow().timestamp()],
+            'dt': [pd.to_datetime('20240101', format='%Y%m%d'), pd.to_datetime('20240201', format='%Y%m%d'),
+                   pd.to_datetime('20240301', format='%Y%m%d')],
+            'c1': [True, True, False],
+            'c2': [pd.to_datetime('2023-12-14 00:03:05.662000'),pd.to_datetime('2023-12-14 00:03:05.662000'),pd.to_datetime('2023-12-14 00:03:05.662000')]
+            }
     df = pd.DataFrame(data)
-    table_name = 't2'
-    # write(df, table_name)
-    read()
+    write(df, 't4')
 
 
 if __name__ == "__main__":
-    # Base = declarative_base()
-    #
-    # class User(Base):
-    #     __tablename__ = 't2'
-    #
-    #     # 定义各字段
-    #     id = Column(Integer, primary_key=True)
-    #     name = Column(String)
-    #     age = Column(Integer)
-    #
-    #     def __str__(self):
-    #         return self.id
     init()
     test()

@@ -3,6 +3,8 @@ import os
 import time
 
 import numpy as np
+
+import openmldb_helper
 from utils import md5_encode, reduce_mem_usage
 from typing import Dict, List, Tuple
 import pandas as pd
@@ -144,6 +146,7 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
             #         "type": "Category",
             #     }
         # print(df.head())
+        openmldb_helper.write(df, 'test')
         return df, label, feature_info
 
 
