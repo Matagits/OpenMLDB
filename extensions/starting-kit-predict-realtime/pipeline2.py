@@ -90,24 +90,31 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
         feature_info = {}
         target_entity_table = tables[table_schema["target_entity"]]
         # print(target_entity_table.info())
+        number_cols = []
         for c in table_schema["entity_detail"][table_schema["target_entity"]]["features"]:
             col_name = c["id"].split(".", 1)[1]
             if c["skip"]:
                 continue
             if col_name == "reqId": # 保留 reqId，在 FeatureInfoSave 需要进行数据存储
                 df[col_name] = target_entity_table[col_name].astype(str)
+            elif col_name == "eventTime":
+                df[col_name] = target_entity_table[col_name].astype('datetime64[ns]').fillna(pd.Timestamp('2021-01-03 07:25:00'))
+            elif col_name == "userId":
+                df[col_name] = target_entity_table[col_name].fillna("")
             elif c["feature_type"] == "Int" or c["feature_type"] == "BigInt":
                 df[col_name] = target_entity_table[col_name].fillna(0).infer_objects(copy=False).astype(int)
                 feature_info[col_name] = {
                     "feature_description": f"raw feature of {col_name}",
                     "type": "Number",
                 }
+                number_cols.append(col_name)
             elif c["feature_type"] == "Double":
                 df[col_name] = target_entity_table[col_name].fillna(0.0).astype(float)
                 feature_info[col_name] = {
                     "feature_description": f"raw feature of {col_name}",
                     "type": "Number",
                 }
+                number_cols.append(col_name)
             elif c["feature_type"] == "Timestamp":
                 col_values = target_entity_table[col_name].astype('datetime64[ns]')
                 col_values = col_values.fillna(pd.Timestamp('2021-01-03 07:25:00'))
@@ -147,6 +154,16 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
             #     }
         # print(df.head())
         openmldb_helper.write(df, 'test')
+        print("Finished to write df to openmldb")
+        df_agg_cols, agg_cols = openmldb_helper.window("test", number_cols, "userId", "eventTime")
+        print("Finished to get window union cols from openmldb")
+        df = pd.concat([df, df_agg_cols], axis=1)
+        for agg_col in agg_cols:
+            feature_info[agg_col] = {
+                "feature_description": f"raw feature of {agg_col}",
+                "type": "Number",
+            }
+        print(df.head())
         return df, label, feature_info
 
 

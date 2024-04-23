@@ -174,8 +174,8 @@ def predict(data_info, pred_df):
 
 if __name__ == "__main__":
     openmldb_helper.init()
-    cmd = "train"
-    # cmd = "load_and_predict"
+    # cmd = "train"
+    cmd = "load_and_predict"
     if cmd == "train":
         logger.info("Start training ...")
         table_schema_path = "./anta-sample/table_schema.json"

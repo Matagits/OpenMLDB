@@ -8,7 +8,7 @@ cursor = None
 
 
 def init():
-    logger.error()
+    logger.error("init")
     global db, cursor
     db = openmldb.dbapi.connect(zk="0.0.0.0:2181", zkPath="/openmldb")
     cursor = db.cursor()
@@ -41,6 +41,7 @@ def write(df, table_name):
         col_infos.append(col_name + " " + col_type)
     df[timestamp_cols] = (df[timestamp_cols].astype(dtype('int64')) / 1000000).astype(dtype('int64'))
 
+    cursor.execute(f"DROP TABLE {table_name}")
     sql = f"CREATE TABLE {table_name} ({', '.join(col_infos)})"
     cursor.execute(sql)
 
@@ -48,6 +49,26 @@ def write(df, table_name):
         values_str = ', '.join([f"'{value}'" if isinstance(value, str) else str(value) for value in row])
         insert_sql = f"INSERT INTO {table_name} ({', '.join(df.columns)}) VALUES ({values_str});"
         cursor.execute(insert_sql)
+
+
+def window(table_name, cols, partition_by_col, order_by_col):
+    agg_cols = []
+    agg_col_sqls = []
+    agg_funcs = ["max", "min", "avg"]
+    for agg_func in agg_funcs:
+        for col_name in cols:
+            agg_cols.append(f"{col_name}_{agg_func}")
+            agg_col_sqls.append(f"{agg_func}({col_name}) OVER w AS {col_name}_{agg_func}")
+    agg_col_sql_str = ", ".join(agg_col_sqls)
+    sql = f"SELECT {agg_col_sql_str} FROM {table_name} " \
+          f"WINDOW w AS (PARTITION BY {partition_by_col} ORDER BY {order_by_col} " \
+          f"ROWS BETWEEN 50 PRECEDING AND CURRENT ROW);"
+    print("window sql: " + sql)
+    result = cursor.execute(sql)
+    rows = result.fetchall()
+    df = pd.DataFrame(rows, columns=agg_cols)
+    return df, agg_cols
+
 
 
 def test():
