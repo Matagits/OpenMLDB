@@ -117,7 +117,7 @@ def window(table_name, cols, partition_by_col, order_by_col):
         df = df.reset_index(drop=True)
     else:
         df = df_parts[0]
-    df.fillna(0)
+    df.fillna(0, inplace=True)
     return df, agg_cols
 
 
