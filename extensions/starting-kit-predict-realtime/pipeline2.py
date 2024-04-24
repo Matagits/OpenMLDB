@@ -5,6 +5,7 @@ import time
 import numpy as np
 
 import openmldb_helper
+from logger import logger
 from utils import md5_encode, reduce_mem_usage
 from typing import Dict, List, Tuple
 import pandas as pd
@@ -91,16 +92,17 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
         target_entity_table = tables[table_schema["target_entity"]]
         # print(target_entity_table.info())
         number_cols = []
+        string_cols = set()
         for c in table_schema["entity_detail"][table_schema["target_entity"]]["features"]:
             col_name = c["id"].split(".", 1)[1]
             if c["skip"]:
                 continue
             if col_name == "reqId": # 保留 reqId，在 FeatureInfoSave 需要进行数据存储
                 df[col_name] = target_entity_table[col_name].astype(str)
-            elif col_name == "eventTime":
-                df[col_name] = target_entity_table[col_name].astype('datetime64[ns]').fillna(pd.Timestamp('2021-01-03 07:25:00'))
-            elif col_name == "userId":
-                df[col_name] = target_entity_table[col_name].fillna("")
+            # elif col_name == "eventTime":
+            #     df[col_name] = target_entity_table[col_name].astype('datetime64[ns]').fillna(pd.Timestamp('2021-01-03 07:25:00'))
+            # elif c["feature_type"] == "String":
+            #     string_cols.add(col_name)
             elif c["feature_type"] == "Int" or c["feature_type"] == "BigInt":
                 df[col_name] = target_entity_table[col_name].fillna(0).infer_objects(copy=False).astype(int)
                 feature_info[col_name] = {
@@ -153,17 +155,36 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
             #         "type": "Category",
             #     }
         # print(df.head())
-        openmldb_helper.write(df, 'test')
-        print("Finished to write df to openmldb")
-        df_agg_cols, agg_cols = openmldb_helper.window("test", number_cols, "userId", "eventTime")
-        print("Finished to get window union cols from openmldb")
-        df = pd.concat([df, df_agg_cols], axis=1)
-        for agg_col in agg_cols:
-            feature_info[agg_col] = {
-                "feature_description": f"raw feature of {agg_col}",
-                "type": "Number",
-            }
-        print(df.head())
+
+        if len(number_cols) > 0:
+            if len(string_cols) > 0:
+                if "userId" in string_cols:
+                    partition_by_col = "userId"
+                elif "itemId" in string_cols:
+                    partition_by_col = "itemId"
+                else:
+                    partition_by_col = string_cols.pop()
+                df[partition_by_col] = target_entity_table[partition_by_col].fillna("")
+
+                logger.info("Start to write df to openmldb")
+                openmldb_helper.write(df, 'test')
+                logger.info("Finished to write df to openmldb")
+                df_agg_cols, agg_cols = openmldb_helper.window("test", number_cols, partition_by_col, "eventTime")
+                logger.info("Finished to get window union cols from openmldb")
+                df = pd.concat([df, df_agg_cols], axis=1)
+                df.drop(columns=[partition_by_col], inplace=True)
+                for agg_col in agg_cols:
+                    feature_info[agg_col] = {
+                        "feature_description": f"raw feature of {agg_col}",
+                        "type": "Number",
+                    }
+                logger.info(df.head())
+            else:
+                logger.info("No string features")
+        else:
+            logger.info("No number features")
+        df.drop(columns=['eventTime'], inplace=True)
+        logger.info(df.columns.tolist())
         return df, label, feature_info
 
 
@@ -244,6 +265,9 @@ class FeatureReducedTransformer(BaseEstimator, TransformerMixin):
             else:
                 digit_columns.extend(col_info["colname_transfer"])
         
+        if len(digit_columns) == 0:
+            return self
+
         self.features_to_keep_ = [digit_columns[0]] # 至少有一个特征
         for column in digit_columns[1:]:  # 不能直接 table.var()，会直接内存爆掉
             if table[column].var() >= self.th:
@@ -307,7 +331,11 @@ class FeatureInfoSave(BaseEstimator, TransformerMixin):
         # 存储训练时的各个特征值
         with open(feature_path+"_temp", "w") as fp:
             for _, row_value in table.iterrows():
-                feat_item = f"{md5_encode(row_value['reqId'])}|"
+                try:
+                    feat_item = f"{md5_encode(row_value['reqId'])}|"
+                except Exception as e:
+                    logger.warn(e)
+                    feat_item = "|"
                 for feat_idx, (colname, colname_transfers) in enumerate(self.col_name_mapping.items()):
                     if feat_info[colname]["type"] == "Number":
                         feat_item += f" {feat_idx}:1:{row_value[colname]}"

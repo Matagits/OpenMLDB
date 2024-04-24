@@ -1,6 +1,3 @@
-import os
-import time
-
 import openmldb.dbapi
 import pandas as pd
 from numpy import dtype
@@ -13,23 +10,17 @@ cursor = None
 def init():
     logger.error("init")
     global db, cursor
-    retry = 60
-    while retry > 0:
-        try:
-            db = openmldb.dbapi.connect(zk="0.0.0.0:2181", zkPath="/openmldb")
-            break
-        except Exception as e:
-            logger.warn(e)
-            logger.warn(retry)
-            time.sleep(5)
-            retry -= 1
+    db = openmldb.dbapi.connect(zk="0.0.0.0:2181", zkPath="/openmldb")
     cursor = db.cursor()
     try:
         cursor.execute("CREATE DATABASE db1")
     except openmldb.dbapi.dbapi.DatabaseError as e:
         logger.warn(e)
     cursor.execute("USE db1")
-    cursor.execute("set @@execute_mode='offline';")
+
+
+def read():
+    pass
 
 
 def write(df, table_name):
@@ -53,8 +44,6 @@ def write(df, table_name):
         col_infos.append(col_name + " " + col_type)
     df[timestamp_cols] = (df[timestamp_cols].astype(dtype('int64')) / 1000000).astype(dtype('int64'))
 
-    df.to_csv('raw_df.csv', index=False, header=True, encoding="utf-8")
-
     try:
         cursor.execute(f"DROP TABLE {table_name}")
     except openmldb.dbapi.dbapi.DatabaseError as e:
@@ -62,30 +51,10 @@ def write(df, table_name):
     sql = f"CREATE TABLE {table_name} ({', '.join(col_infos)})"
     cursor.execute(sql)
 
-    load_data_infile(table_name, "raw_df.csv")
-
-
-def load_data_infile(table_name: str, file_path: str, mode: str = 'overwrite', block: bool = True):
-    file_path = f"file://{os.path.abspath(file_path)}"
-    cursor.execute(
-        f"LOAD DATA INFILE '{file_path}' INTO TABLE {table_name} options(format='csv', mode='{mode}', deep_copy=false);")
-    job_id = None
-    for job_info in cursor.fetchall():
-        job_id = job_info[0]
-    if block:
-        job_state = get_job_state(job_id)
-        while job_state.lower() not in ['failed', 'finished', 'killed']:
-            print(f'load data infile job {job_id} state: {job_state}')
-            time.sleep(5)
-            job_state = get_job_state(job_id)
-        print(f'load data infile job {job_id} state: {job_state}')
-    return job_id
-
-
-def get_job_state(job_id: str) -> str:
-    cursor.execute(f"show job {job_id}")
-    for job_info in cursor.fetchall():
-        return job_info[2]
+    for index, row in df.iterrows():
+        values_str = ', '.join([f"'{value}'" if isinstance(value, str) else str(value) for value in row])
+        insert_sql = f"INSERT INTO {table_name} ({', '.join(df.columns)}) VALUES ({values_str});"
+        cursor.execute(insert_sql)
 
 
 def window(table_name, cols, partition_by_col, order_by_col):
@@ -100,43 +69,13 @@ def window(table_name, cols, partition_by_col, order_by_col):
     sql = f"SELECT {agg_col_sql_str} FROM {table_name} " \
           f"WINDOW w AS (PARTITION BY {partition_by_col} ORDER BY {order_by_col} " \
           f"ROWS BETWEEN 50 PRECEDING AND CURRENT ROW)"
-    export_new_feature_outfile(sql, "window_union")
-
-    csv_files = os.listdir("window_union")
-    csv_files.sort()
-    df_parts = []
-    for file in csv_files:
-        if not file.endswith(".csv"):
-            continue
-        file_path = os.path.join("window_union", file)
-        csv_f = pd.read_csv(file_path)
-        df = pd.DataFrame(csv_f, columns=agg_cols)
-        df_parts.append(df)
-    if len(df_parts) > 0:
-        df = pd.concat(df_parts)
-        df = df.reset_index(drop=True)
-    else:
-        df = df_parts[0]
-    df.fillna(0)
+    select_into_sql = f"{sql} INTO OUTFILE 'data.csv' OPTIONS (delimiter=',', mode='overwrite');"
+    print("window sql: " + select_into_sql)
+    cursor.execute(select_into_sql)
+    result_csv = pd.read_csv('data.csv')
+    df = pd.DataFrame(result_csv, columns=agg_cols)
+    print(df.head())
     return df, agg_cols
-
-
-def export_new_feature_outfile(sql: str, file_path: str, mode: str = 'overwrite',
-                               block: bool = True):
-    file_path = f"file://{os.path.abspath(file_path)}"
-    cursor.execute(
-        f"{sql} INTO OUTFILE '{file_path}' options(delimiter=',', format='csv', mode='{mode}')")
-    job_id = None
-    for job_info in cursor.fetchall():
-        job_id = job_info[0]
-    if block:
-        job_state = get_job_state(job_id)
-        while job_state.lower() not in ['failed', 'finished', 'killed']:
-            print(f'export new feature outfile job {job_id} state: {job_state}')
-            time.sleep(5)
-            job_state = get_job_state(job_id)
-        print(f'export new feature outfile job {job_id} state: {job_state}')
-    return job_id
 
 
 

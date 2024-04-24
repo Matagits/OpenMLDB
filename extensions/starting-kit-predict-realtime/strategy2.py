@@ -173,17 +173,16 @@ def predict(data_info, pred_df):
 
 
 if __name__ == "__main__":
+    cmd = sys.argv[1]
     openmldb_helper.init()
-    # cmd = "train"
-    cmd = "load_and_predict"
     if cmd == "train":
         logger.info("Start training ...")
-        table_schema_path = "./anta-sample/table_schema.json"
-        task_type = "BinaryClassification"
-        workspace_path = "./work/workspace"
-        feature_path = "./work/feature.txt"
-        feature_info_path = "./work/feature_info.json"
-        train_paths = ["./anta-sample/0000"]
+        table_schema_path = sys.argv[2]
+        task_type = sys.argv[3]
+        workspace_path = sys.argv[4]
+        feature_path = sys.argv[5]
+        feature_info_path = sys.argv[6]
+        train_paths = sys.argv[7:]
 
         os.makedirs(workspace_path, exist_ok=True)
 
@@ -225,8 +224,8 @@ if __name__ == "__main__":
         logger.info("Train finished")
     elif cmd == "load_and_predict":  # 该部分仅仅用于本地调试
         logger.info("Start Load and Predict ...")
-        workspace_path = "./work/workspace"
-        eval_path = "./anta-sample/0000/flattenRequest"
+        workspace_path = sys.argv[2]
+        eval_path = sys.argv[3]
 
         # load model and data info
         data_info = load_model_and_data(workspace_path)

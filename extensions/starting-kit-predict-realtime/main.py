@@ -9,6 +9,8 @@ import uuid
 import pandas as pd
 from flask import Flask, request
 
+import openmldb_helper
+
 logging.basicConfig(
     level=os.environ.get("LOGLEVEL", "INFO"),
     format="%(asctime)s %(name)-12s %(levelname)-4s %(message)s",
@@ -103,6 +105,7 @@ def load_model():
 
         try:
             data_info = load_model_and_data(workspace_path)
+            openmldb_helper.init()
         except Exception as e:
             logger.error(f"Load Model Error, Exception {e}")
             thread_exception[task_id] = 1
@@ -172,6 +175,7 @@ def predict_stage():
 
 
 if __name__ == "__main__":
+    subprocess.Popen("/root/test/init.sh")
     app.run("0.0.0.0", 80, threaded=True)
     # app.run("0.0.0.0", 29997, threaded=True)
     # app.run("0.0.0.0", 29996, threaded=True)

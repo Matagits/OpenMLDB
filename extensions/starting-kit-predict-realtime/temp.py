@@ -1,26 +1,22 @@
 import pandas as pd
-from sqlalchemy import create_engine, text
+import openmldb.dbapi
 
 
 if __name__ == "__main__":
-    data = {'id': [1, 2, 3],
-            'name': ['Alice', 'Bob', 'Charlie'],
-            'age': [25, 30, 35]}
-    df = pd.DataFrame(data)
-    engine = create_engine('mysql+pymysql://root:root@127.0.0.1:3307/db1', echo=True)
-    # create table t2(id int, name string, age int);
-    table_name = 't2'
-    # with engine.connect() as conn:
-    #     df.to_sql(table_name, conn.connection, if_exists='replace', index=False)
-    df.to_sql(table_name, engine, if_exists='replace', index=False)
-
-    # insert_sql_list = []
-    # for index, row in df.iterrows():
-    #     values_str = ', '.join([f"'{value}'" if isinstance(value, str) else str(value) for value in row])
-    #     insert_sql = f"INSERT INTO {table_name} ({', '.join(df.columns)}) VALUES ({values_str});"
-    #     insert_sql_list.append(insert_sql)
-    # with engine.connect() as conn:
-    #     for sql in insert_sql_list:
-    #         print(sql)
-    #         conn.execute(text(sql))
+    db = openmldb.dbapi.connect(zk="0.0.0.0:2181", zkPath="/openmldb")
+    cursor = db.cursor()
+    cursor.execute("USE db1")
+    table_name = "test"
+    partition_by_col = "eventTime_weekday"
+    order_by_col = "clickToday"
+    cols = ["showCount1d", "duration"]
+    agg_cols = ", ".join(map(lambda col_name: f"max({col_name}) OVER w AS {col_name}_max", cols))
+    sql = f"SELECT {agg_cols} FROM {table_name} " \
+          f"WINDOW w AS (PARTITION BY {partition_by_col} ORDER BY {order_by_col} " \
+          f"ROWS BETWEEN 50 PRECEDING AND CURRENT ROW);"
+    print("sql: " + sql)
+    result = cursor.execute(sql)
+    all1 = result.fetchall()
+    df = pd.DataFrame(all1, columns=cols)
+    print(df.head())
     print("Data written to MySQL table successfully!")
