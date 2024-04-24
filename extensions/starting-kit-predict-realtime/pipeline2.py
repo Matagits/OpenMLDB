@@ -99,10 +99,10 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
                 continue
             if col_name == "reqId": # 保留 reqId，在 FeatureInfoSave 需要进行数据存储
                 df[col_name] = target_entity_table[col_name].astype(str)
-            # elif col_name == "eventTime":
-            #     df[col_name] = target_entity_table[col_name].astype('datetime64[ns]').fillna(pd.Timestamp('2021-01-03 07:25:00'))
-            # elif c["feature_type"] == "String":
-            #     string_cols.add(col_name)
+            elif col_name == "eventTime":
+                df[col_name] = target_entity_table[col_name].astype('datetime64[ns]').fillna(pd.Timestamp('2021-01-03 07:25:00'))
+            elif c["feature_type"] == "String":
+                string_cols.add(col_name)
             elif c["feature_type"] == "Int" or c["feature_type"] == "BigInt":
                 df[col_name] = target_entity_table[col_name].fillna(0).infer_objects(copy=False).astype(int)
                 feature_info[col_name] = {
