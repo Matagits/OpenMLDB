@@ -176,9 +176,12 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
                 logger.info("Finished to write df to openmldb")
                 df_agg_cols, agg_cols = openmldb_helper.window("test", number_cols, partition_by_col, "eventTime")
                 logger.info("Finished to get window union cols from openmldb")
-                print(len(df_agg_cols))
-                df_agg_cols.index = df.index
-                df = pd.concat([df, df_agg_cols], axis=1)
+                print(df_agg_cols.columns.tolist())
+                # todo 按reqId拼接
+                # df_agg_cols.index = df.index
+                # df = pd.concat([df, df_agg_cols], axis=1)
+                df = pd.merge(df, df_agg_cols, on="reqId", how="left")
+                df[agg_cols] = df[agg_cols].fillna(0)
                 print(len(df))
                 df.drop(columns=[partition_by_col], inplace=True)
                 for agg_col in agg_cols:

@@ -97,20 +97,23 @@ def window(table_name, cols, partition_by_col, order_by_col):
             agg_cols.append(f"{col_name}_{agg_func}")
             agg_col_sqls.append(f"{agg_func}({col_name}) OVER w AS {col_name}_{agg_func}")
     agg_col_sql_str = ", ".join(agg_col_sqls)
-    sql = f"SELECT {agg_col_sql_str} FROM {table_name} " \
+    sql = f"SELECT reqId, {agg_col_sql_str} FROM {table_name} " \
           f"WINDOW w AS (PARTITION BY {partition_by_col} ORDER BY {order_by_col} " \
           f"ROWS BETWEEN 50 PRECEDING AND CURRENT ROW)"
+    print("sql: " + sql)
     export_new_feature_outfile(sql, "window_union")
 
     csv_files = os.listdir("window_union")
     csv_files.sort()
     df_parts = []
+    all_cols = agg_cols.copy()
+    all_cols.append("reqId")
     for file in csv_files:
         if not file.endswith(".csv"):
             continue
         file_path = os.path.join("window_union", file)
         csv_f = pd.read_csv(file_path)
-        df = pd.DataFrame(csv_f, columns=agg_cols)
+        df = pd.DataFrame(csv_f, columns=all_cols)
         df_parts.append(df)
     if len(df_parts) > 0:
         df = pd.concat(df_parts)

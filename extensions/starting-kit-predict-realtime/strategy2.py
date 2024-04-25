@@ -45,6 +45,7 @@ def train(table_schema, typ, tables):
         .astype(float)
     )
     # train
+    # todo 区分train/predict，区分离在线模式
     if typ == "BinaryClassification":
         from pipeline2 import FeatureEngineerInitTransformer
         from pipeline2 import FeatureInfoSave
@@ -106,6 +107,7 @@ workspace_path：模型、数据的加载根文件夹
 
 # TODO
 def load_model_and_data(workspace_path):
+    # todo 预测时，历史数据累加不清除
     table_schema_path = get_table_schema_in_workspace(workspace_path)
     logger.info(f"Load Table Schema From {table_schema_path}")
     with open(table_schema_path, "r") as fp:
