@@ -1,28 +1,9 @@
-import time
-
-import openmldb.dbapi
-from logger import logger
+import pandas as pd
 
 
 def test():
-    global db, cursor
-    retry = 5
-    while retry > 0:
-        try:
-            db = openmldb.dbapi.connect(zk="0.0.0.0:2181", zkPath="/openmldb")
-            break
-        except Exception as e:
-            logger.warn(e)
-            logger.warn(retry)
-            time.sleep(2)
-            retry -= 1
-    cursor = db.cursor()
-    try:
-        cursor.execute("CREATE DATABASE db1")
-    except openmldb.dbapi.dbapi.DatabaseError as e:
-        logger.warn(e)
-    cursor.execute("USE db1")
-    cursor.execute("set @@execute_mode='offline';")
+    a = pd.read_parquet("/Users/4paradigm/Downloads/automl.ctr-dataset/0000/flattenRequest/fa85df37-ebb6-4bba-a2ae-8bb0227ab881.snappy.parquet")
+    b = 1
 
 
 if __name__ == "__main__":

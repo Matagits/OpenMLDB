@@ -99,8 +99,6 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
                 continue
             if col_name == "reqId": # 保留 reqId，在 FeatureInfoSave 需要进行数据存储
                 df[col_name] = target_entity_table[col_name].astype(str)
-            elif col_name == "eventTime":
-                df[col_name] = target_entity_table[col_name].astype('datetime64[ns]').fillna(pd.Timestamp('2021-01-03 07:25:00'))
             elif c["feature_type"] == "String":
                 string_cols.add(col_name)
             elif c["feature_type"] == "Int" or c["feature_type"] == "BigInt":
@@ -120,6 +118,8 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
             elif c["feature_type"] == "Timestamp":
                 col_values = target_entity_table[col_name].astype('datetime64[ns]')
                 col_values = col_values.fillna(pd.Timestamp('2021-01-03 07:25:00'))
+                if col_name == "eventTime":
+                    df[col_name] = col_values
                 df[col_name + "_month"] = col_values.dt.month
                 df[col_name + "_weekday"] = col_values.dt.weekday
                 df[col_name + "_month"] = df[col_name + "_month"].apply(str)
@@ -156,6 +156,11 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
             #     }
         # print(df.head())
 
+        print(df.columns.tolist())
+        print(len(df))
+        print(df.head())
+        print()
+
         if len(number_cols) > 0:
             if len(string_cols) > 0:
                 if "userId" in string_cols:
@@ -171,7 +176,10 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
                 logger.info("Finished to write df to openmldb")
                 df_agg_cols, agg_cols = openmldb_helper.window("test", number_cols, partition_by_col, "eventTime")
                 logger.info("Finished to get window union cols from openmldb")
+                print(len(df_agg_cols))
+                df_agg_cols.index = df.index
                 df = pd.concat([df, df_agg_cols], axis=1)
+                print(len(df))
                 df.drop(columns=[partition_by_col], inplace=True)
                 for agg_col in agg_cols:
                     feature_info[agg_col] = {
@@ -183,8 +191,9 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
                 logger.info("No string features")
         else:
             logger.info("No number features")
+
         df.drop(columns=['eventTime'], inplace=True)
-        logger.info(df.columns.tolist())
+        logger.info("columns: " + str(df.columns.tolist()))
         return df, label, feature_info
 
 
@@ -302,6 +311,8 @@ class FeatureInfoSave(BaseEstimator, TransformerMixin):
     
     def fit(self, X: Tuple[pd.DataFrame, pd.DataFrame, Dict], y=None):
         table, _, feat_info = X
+        print(table.columns.tolist())
+        print(table.head())
         
         table_columns = set(table.columns)
         for feat_col_name, feat_col_info in feat_info.items():
@@ -330,12 +341,14 @@ class FeatureInfoSave(BaseEstimator, TransformerMixin):
 
         # 存储训练时的各个特征值
         with open(feature_path+"_temp", "w") as fp:
-            for _, row_value in table.iterrows():
+            for index, row_value in table.iterrows():
                 try:
                     feat_item = f"{md5_encode(row_value['reqId'])}|"
                 except Exception as e:
-                    logger.warn(e)
-                    feat_item = "|"
+                    print("error occur")
+                    print("index: " + str(index))
+                    print("reqId: " + str(row_value['reqId']))
+                    raise e
                 for feat_idx, (colname, colname_transfers) in enumerate(self.col_name_mapping.items()):
                     if feat_info[colname]["type"] == "Number":
                         feat_item += f" {feat_idx}:1:{row_value[colname]}"
