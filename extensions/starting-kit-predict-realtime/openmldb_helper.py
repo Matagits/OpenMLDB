@@ -8,11 +8,13 @@ from logger import logger
 
 db = None
 cursor = None
+online_mode = False
 
 
-def init():
+def init(online=False):
     logger.error("init")
-    global db, cursor
+    global db, cursor, online_mode
+    online_mode = online
     retry = 60
     while retry > 0:
         try:
@@ -29,7 +31,8 @@ def init():
     except openmldb.dbapi.dbapi.DatabaseError as e:
         logger.warn(e)
     cursor.execute("USE db1")
-    cursor.execute("set @@execute_mode='offline';")
+    execute_mode = "'online'" if online else "'offline'"
+    cursor.execute(f"set @@execute_mode={execute_mode};")
 
 
 def write(df, table_name):
@@ -53,8 +56,6 @@ def write(df, table_name):
         col_infos.append(col_name + " " + col_type)
     df[timestamp_cols] = (df[timestamp_cols].astype(dtype('int64')) / 1000000).astype(dtype('int64'))
 
-    df.to_csv('raw_df.csv', index=False, header=True, encoding="utf-8")
-
     try:
         cursor.execute(f"DROP TABLE {table_name}")
     except openmldb.dbapi.dbapi.DatabaseError as e:
@@ -62,13 +63,41 @@ def write(df, table_name):
     sql = f"CREATE TABLE {table_name} ({', '.join(col_infos)})"
     cursor.execute(sql)
 
-    load_data_infile(table_name, "raw_df.csv")
+    write_to_db(df, table_name)
+
+
+def write_to_db(df, table_name):
+    start_time = time.time()
+    if online_mode:
+        # for index, row in df.iterrows():
+        #     values_str = ', '.join([f"'{value}'" if isinstance(value, str) else str(value) for value in row])
+        #     insert_sql = f"INSERT INTO {table_name} ({', '.join(df.columns)}) VALUES ({values_str});"
+        #     cursor.execute(insert_sql)
+
+        cols = ', '.join(df.columns)
+        df.apply(lambda row1: insert(row1, table_name, cols), axis=1)
+    else:
+        df.to_csv('raw_df.csv', index=False, header=True, encoding="utf-8")
+        load_data_infile(table_name, "raw_df.csv")
+
+    end_time = time.time()
+    print("start time: " + str(start_time))
+    print("end time: " + str(end_time))
+    print("cost: " + str(end_time - start_time))
+    print("Data written to openMLDB successfully!")
+
+
+def insert(row, table_name, cols):
+    values_str = ', '.join([f"'{value}'" if isinstance(value, str) else str(value) for value in row])
+    insert_sql = f"INSERT INTO {table_name} ({cols}) VALUES ({values_str});"
+    cursor.execute(insert_sql)
 
 
 def load_data_infile(table_name: str, file_path: str, mode: str = 'overwrite', block: bool = True):
     file_path = f"file://{os.path.abspath(file_path)}"
+    deep_copy = "true" if online_mode else "false"
     cursor.execute(
-        f"LOAD DATA INFILE '{file_path}' INTO TABLE {table_name} options(format='csv', mode='{mode}', deep_copy=false);")
+        f"LOAD DATA INFILE '{file_path}' INTO TABLE {table_name} options(format='csv', mode='{mode}', deep_copy={deep_copy});")
     job_id = None
     for job_info in cursor.fetchall():
         job_id = job_info[0]
@@ -101,27 +130,37 @@ def window(table_name, cols, partition_by_col, order_by_col):
           f"WINDOW w AS (PARTITION BY {partition_by_col} ORDER BY {order_by_col} " \
           f"ROWS BETWEEN 50 PRECEDING AND CURRENT ROW)"
     print("sql: " + sql)
-    export_new_feature_outfile(sql, "window_union")
 
-    csv_files = os.listdir("window_union")
-    csv_files.sort()
-    df_parts = []
     all_cols = agg_cols.copy()
-    all_cols.append("reqId")
-    for file in csv_files:
-        if not file.endswith(".csv"):
-            continue
-        file_path = os.path.join("window_union", file)
-        csv_f = pd.read_csv(file_path)
-        df = pd.DataFrame(csv_f, columns=all_cols)
-        df_parts.append(df)
-    if len(df_parts) > 0:
-        df = pd.concat(df_parts)
-        df = df.reset_index(drop=True)
-    else:
-        df = df_parts[0]
-    df.fillna(0, inplace=True)
+    all_cols.insert(0, "reqId")
+    df = get_window_df(sql, all_cols)
     return df, agg_cols
+
+
+def get_window_df(sql, cols):
+    if online_mode:
+        result = cursor.execute(sql + ";")
+        rows = result.fetchall()
+        df = pd.DataFrame(rows, columns=cols)
+    else:
+        export_new_feature_outfile(sql, "window_union")
+
+        csv_files = os.listdir("window_union")
+        csv_files.sort()
+        df_parts = []
+        for file in csv_files:
+            if not file.endswith(".csv"):
+                continue
+            file_path = os.path.join("window_union", file)
+            csv_f = pd.read_csv(file_path)
+            df = pd.DataFrame(csv_f, columns=cols)
+            df_parts.append(df)
+        if len(df_parts) > 0:
+            df = pd.concat(df_parts)
+            df = df.reset_index(drop=True)
+        else:
+            df = df_parts[0]
+    return df
 
 
 def export_new_feature_outfile(sql: str, file_path: str, mode: str = 'overwrite',

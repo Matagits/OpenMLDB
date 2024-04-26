@@ -171,15 +171,13 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
                     partition_by_col = string_cols.pop()
                 df[partition_by_col] = target_entity_table[partition_by_col].fillna("")
 
-                logger.info("Start to write df to openmldb")
+                print("Start to write df to openmldb")
                 openmldb_helper.write(df, 'test')
-                logger.info("Finished to write df to openmldb")
+                print("Finished to write df to openmldb")
                 df_agg_cols, agg_cols = openmldb_helper.window("test", number_cols, partition_by_col, "eventTime")
-                logger.info("Finished to get window union cols from openmldb")
+                print("Finished to get window union cols from openmldb")
                 print(df_agg_cols.columns.tolist())
-                # todo 按reqId拼接
-                # df_agg_cols.index = df.index
-                # df = pd.concat([df, df_agg_cols], axis=1)
+                print(df_agg_cols.head())
                 df = pd.merge(df, df_agg_cols, on="reqId", how="left")
                 df[agg_cols] = df[agg_cols].fillna(0)
                 print(len(df))
@@ -314,7 +312,7 @@ class FeatureInfoSave(BaseEstimator, TransformerMixin):
     
     def fit(self, X: Tuple[pd.DataFrame, pd.DataFrame, Dict], y=None):
         table, _, feat_info = X
-        print(table.columns.tolist())
+        print("FeatureInfoSave" + str(table.columns.tolist()))
         print(table.head())
         
         table_columns = set(table.columns)
@@ -345,13 +343,7 @@ class FeatureInfoSave(BaseEstimator, TransformerMixin):
         # 存储训练时的各个特征值
         with open(feature_path+"_temp", "w") as fp:
             for index, row_value in table.iterrows():
-                try:
-                    feat_item = f"{md5_encode(row_value['reqId'])}|"
-                except Exception as e:
-                    print("error occur")
-                    print("index: " + str(index))
-                    print("reqId: " + str(row_value['reqId']))
-                    raise e
+                feat_item = f"{md5_encode(row_value['reqId'])}|"
                 for feat_idx, (colname, colname_transfers) in enumerate(self.col_name_mapping.items()):
                     if feat_info[colname]["type"] == "Number":
                         feat_item += f" {feat_idx}:1:{row_value[colname]}"

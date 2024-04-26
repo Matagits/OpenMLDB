@@ -105,7 +105,6 @@ def load_model():
 
         try:
             data_info = load_model_and_data(workspace_path)
-            openmldb_helper.init()
         except Exception as e:
             logger.error(f"Load Model Error, Exception {e}")
             thread_exception[task_id] = 1

@@ -108,6 +108,7 @@ workspace_path：模型、数据的加载根文件夹
 # TODO
 def load_model_and_data(workspace_path):
     # todo 预测时，历史数据累加不清除
+    openmldb_helper.init(online=True)
     table_schema_path = get_table_schema_in_workspace(workspace_path)
     logger.info(f"Load Table Schema From {table_schema_path}")
     with open(table_schema_path, "r") as fp:
@@ -176,8 +177,8 @@ def predict(data_info, pred_df):
 
 if __name__ == "__main__":
     cmd = sys.argv[1]
-    openmldb_helper.init()
     if cmd == "train":
+        openmldb_helper.init(online=False)
         logger.info("Start training ...")
         table_schema_path = sys.argv[2]
         task_type = sys.argv[3]
