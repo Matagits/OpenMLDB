@@ -1,9 +1,17 @@
-import pandas as pd
+import openmldb.dbapi
 
 
 def test():
-    a = pd.read_parquet("/Users/4paradigm/Downloads/automl.ctr-dataset/0000/flattenRequest/fa85df37-ebb6-4bba-a2ae-8bb0227ab881.snappy.parquet")
-    b = 1
+    db = openmldb.dbapi.connect(zk="0.0.0.0:2181", zkPath="/openmldb")
+    cursor = db.cursor()
+    cursor.execute("USE db1")
+    cursor.execute(f"set @@execute_mode='online';")
+    result = cursor.callproc("d2", (1, 1, 'a'))
+    out_schema = result.get_resultset_schema()
+    print(out_schema)
+    all_result = result.fetchone()
+    print(type(all_result))
+    print("all_result: " + str(all_result))
 
 
 if __name__ == "__main__":

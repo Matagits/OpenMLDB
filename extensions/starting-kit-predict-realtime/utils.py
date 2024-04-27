@@ -37,6 +37,10 @@ def get_model_path_in_workspace(workspace_path):
     return os.path.join(workspace_path, "model.pickle")
 
 
+def get_train_df_csv_in_workspace(workspace_path):
+    return os.path.join(workspace_path, "train.csv")
+
+
 def get_train_dir_in_workspace(workspace_path):
     workspace_train_path = os.path.join(workspace_path, "train")
     os.makedirs(workspace_train_path, exist_ok=True)
@@ -45,6 +49,14 @@ def get_train_dir_in_workspace(workspace_path):
 
 def get_task_type_in_workspace(workspace_path):
     return os.path.join(workspace_path, "task_type")
+
+
+def get_create_table_sql_in_workspace(workspace_path):
+    return os.path.join(workspace_path, "create_table_sql")
+
+
+def get_window_sql_in_workspace(workspace_path):
+    return os.path.join(workspace_path, "window_sql")
 
 
 def md5_encode(item: str):
@@ -56,9 +68,9 @@ def md5_encode(item: str):
 
 
 def reduce_mem_usage(df):
-    start_mem_usg = df.memory_usage().sum() / 1024**2 
-    print("Memory usage of properties dataframe is :",start_mem_usg," MB")
-    NAlist = [] # Keeps track of columns that have missing values filled in. 
+    start_mem_usg = df.memory_usage().sum() / 1024 ** 2
+    print("Memory usage of properties dataframe is :", start_mem_usg, " MB")
+    NAlist = []  # Keeps track of columns that have missing values filled in.
     for col in df.columns:
         if df[col].dtype != object and df[col].dtype != "string":  # Exclude strings            
             # Print current column type
@@ -72,17 +84,17 @@ def reduce_mem_usage(df):
             # print("min for this col: ",mn)
             # print("max for this col: ",mx)
             # Integer does not support NA, therefore, NA needs to be filled
-            if not np.isfinite(df[col]).all(): 
+            if not np.isfinite(df[col]).all():
                 NAlist.append(col)
-                df[col].fillna(mn-1,inplace=True)  
-                   
-            # test if column can be converted to an integer
+                df[col].fillna(mn - 1, inplace=True)
+
+                # test if column can be converted to an integer
             asint = df[col].fillna(0).astype(np.int64)
             result = (df[col] - asint)
             result = result.sum()
             if result > -0.01 and result < 0.01:
-                IsInt = True            
-            # Make Integer/unsigned Integer datatypes
+                IsInt = True
+                # Make Integer/unsigned Integer datatypes
             if IsInt:
                 if mn >= 0:
                     if mx < 255:
@@ -101,17 +113,17 @@ def reduce_mem_usage(df):
                     elif mn > np.iinfo(np.int32).min and mx < np.iinfo(np.int32).max:
                         df[col] = df[col].astype(np.int32)
                     elif mn > np.iinfo(np.int64).min and mx < np.iinfo(np.int64).max:
-                        df[col] = df[col].astype(np.int64)    
-            # Make float datatypes 32 bit
+                        df[col] = df[col].astype(np.int64)
+                        # Make float datatypes 32 bit
             else:
                 df[col] = df[col].astype(np.float32)
-            
+
             # Print new column type
             # print("dtype after: ",df[col].dtype)
             # print("******************************")
     # Print final result
     print("___MEMORY USAGE AFTER COMPLETION:___")
-    mem_usg = df.memory_usage().sum() / 1024**2 
-    print("Memory usage is: ",mem_usg," MB")
-    print("This is ",100*mem_usg/start_mem_usg,"% of the initial size")
+    mem_usg = df.memory_usage().sum() / 1024 ** 2
+    print("Memory usage is: ", mem_usg, " MB")
+    print("This is ", 100 * mem_usg / start_mem_usg, "% of the initial size")
     return df, NAlist

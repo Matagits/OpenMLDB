@@ -5,7 +5,6 @@ import time
 import numpy as np
 
 import openmldb_helper
-from logger import logger
 from utils import md5_encode, reduce_mem_usage
 from typing import Dict, List, Tuple
 import pandas as pd
@@ -171,30 +170,23 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
                     partition_by_col = string_cols.pop()
                 df[partition_by_col] = target_entity_table[partition_by_col].fillna("")
 
-                print("Start to write df to openmldb")
-                openmldb_helper.write(df, 'test')
-                print("Finished to write df to openmldb")
-                df_agg_cols, agg_cols = openmldb_helper.window("test", number_cols, partition_by_col, "eventTime")
+                df, agg_cols = openmldb_helper.append_window_union_features(df, number_cols, 'reqId', partition_by_col, "eventTime")
                 print("Finished to get window union cols from openmldb")
-                print(df_agg_cols.columns.tolist())
-                print(df_agg_cols.head())
-                df = pd.merge(df, df_agg_cols, on="reqId", how="left")
-                df[agg_cols] = df[agg_cols].fillna(0)
                 print(len(df))
                 df.drop(columns=[partition_by_col], inplace=True)
+                print(df.head())
                 for agg_col in agg_cols:
                     feature_info[agg_col] = {
                         "feature_description": f"raw feature of {agg_col}",
                         "type": "Number",
                     }
-                logger.info(df.head())
             else:
-                logger.info("No string features")
+                print("No string features")
         else:
-            logger.info("No number features")
+            print("No number features")
 
         df.drop(columns=['eventTime'], inplace=True)
-        logger.info("columns: " + str(df.columns.tolist()))
+        print("columns: " + str(df.columns.tolist()))
         return df, label, feature_info
 
 

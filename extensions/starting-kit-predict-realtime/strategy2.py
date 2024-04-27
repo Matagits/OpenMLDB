@@ -14,6 +14,7 @@ from utils import (
     get_table_schema_in_workspace,
     get_task_type_in_workspace,
     get_train_dir_in_workspace,
+    get_window_sql_in_workspace,
     load_table_schema,
     load_train_data,
 )
@@ -108,7 +109,7 @@ workspace_path：模型、数据的加载根文件夹
 # TODO
 def load_model_and_data(workspace_path):
     # todo 预测时，历史数据累加不清除
-    openmldb_helper.init(online=True)
+    openmldb_helper.init(workspace_path, online=True)
     table_schema_path = get_table_schema_in_workspace(workspace_path)
     logger.info(f"Load Table Schema From {table_schema_path}")
     with open(table_schema_path, "r") as fp:
@@ -178,7 +179,6 @@ def predict(data_info, pred_df):
 if __name__ == "__main__":
     cmd = sys.argv[1]
     if cmd == "train":
-        openmldb_helper.init(online=False)
         logger.info("Start training ...")
         table_schema_path = sys.argv[2]
         task_type = sys.argv[3]
@@ -188,6 +188,7 @@ if __name__ == "__main__":
         train_paths = sys.argv[7:]
 
         os.makedirs(workspace_path, exist_ok=True)
+        openmldb_helper.init(workspace_path, online=False)
 
         logger.info(f"Loading table schema from {table_schema_path}")
         table_schema = load_table_schema(table_schema_path)
@@ -239,7 +240,9 @@ if __name__ == "__main__":
         pred_df = pd.read_parquet(eval_path)
 
         # predict data
-        result = predict(data_info, pred_df)
+        for i in range(0, len(pred_df), 100):
+            print(f"Predict: {i}")
+            result = predict(data_info, pred_df.iloc[i: i+100])
 
         # save result to local
         logger.info(f"Saving predict result to pred.csv")
