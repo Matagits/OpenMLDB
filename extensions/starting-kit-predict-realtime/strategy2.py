@@ -1,3 +1,4 @@
+import faulthandler
 import json
 import os
 import pickle
@@ -249,22 +250,22 @@ if __name__ == "__main__":
         eval_path = sys.argv[3]
 
         # load model and data info
-        # data_info = load_model_and_data(workspace_path)
+        data_info = load_model_and_data(workspace_path)
 
-        task_id = str(uuid.uuid4())
-        load_model_task_proc = {}
-        load_model_task_proc[task_id] = threading.Thread(target=load_model_thread)
-        load_model_task_proc[task_id].start()
-        while True:
-            thread = load_model_task_proc[task_id]
-            if thread.is_alive():
-                print({"success": True, "data": {"status": "Running"}})
-            elif task_id in thread_exception:
-                print({"success": True, "data": {"status": "Failed"}})
-            else:
-                print({"success": True, "data": {"status": "Success"}})
-                break
-            time.sleep(20)
+        # task_id = str(uuid.uuid4())
+        # load_model_task_proc = {}
+        # load_model_task_proc[task_id] = threading.Thread(target=load_model_thread)
+        # load_model_task_proc[task_id].start()
+        # while True:
+        #     thread = load_model_task_proc[task_id]
+        #     if thread.is_alive():
+        #         print({"success": True, "data": {"status": "Running"}})
+        #     elif task_id in thread_exception:
+        #         print({"success": True, "data": {"status": "Failed"}})
+        #     else:
+        #         print({"success": True, "data": {"status": "Success"}})
+        #         break
+        #     time.sleep(20)
 
         # load predict data offline
         logger.info(f"Loading predict data from {eval_path}")
@@ -272,9 +273,11 @@ if __name__ == "__main__":
         pred_df = pd.read_parquet(eval_path)
 
         # predict data
-        for i in range(0, len(pred_df), 100):
-            print(f"Predict: {i}")
-            result = predict(data_info, pred_df.iloc[i: i+100])
+        # for i in range(0, len(pred_df), 100):
+        #     print(f"Predict: {i}")
+        #     result = predict(data_info, pred_df.iloc[i: i+100])
+
+        result = predict(data_info, pred_df.iloc[0: 100])
 
         # save result to local
         logger.info(f"Saving predict result to pred.csv")

@@ -21,6 +21,7 @@ workspace_path = ""
 db_name = "db1"
 table_name = "automl"
 proc_name = "window_deploy"
+window_sql_parts = []
 
 
 def init(workspace, online=False):
@@ -53,6 +54,8 @@ def init(workspace, online=False):
             with open(create_table_sql_path, "r") as fp:
                 create_table_sql = fp.read()
             logger.info(f"CreateTableSql: {create_table_sql}")
+            # create_table_sql = create_table_sql[:-1] + ", INDEX(KEY=(reqId, userId), TS=eventTime))"
+            # logger.info(f"new create: {create_table_sql}")
             try:
                 cursor.execute(create_table_sql)
             except openmldb.dbapi.dbapi.DatabaseError as e:
@@ -64,15 +67,12 @@ def init(workspace, online=False):
 
             window_sql_path = get_window_sql_in_workspace(workspace_path)
             logger.info(f"Load WindowSql From {window_sql_path}")
+            global window_sql_parts
             with open(window_sql_path, "r") as fp:
                 window_sql = fp.read()
             logger.info(f"WindowSql: {window_sql}")
-            try:
-                cursor.execute(f"DEPLOY {proc_name} {window_sql}")
-            except openmldb.dbapi.dbapi.DatabaseError as e:
-                logger.warning(e)
-            cursor.execute("show deployments;")
-            logger.info(f"Deployments: {cursor.fetchall()}")
+            window_sql_parts = window_sql.split('WINDOW')
+            logger.info(f"window_sql_parts: {window_sql_parts}")
         except Exception as ex:
             logger.warning(ex)
     logger.info(f"Finished init")
@@ -182,7 +182,10 @@ def window(df, table, cols, id_col, partition_by_col, order_by_col):
 
     if online_mode:
         print(agg_cols)
-        df[agg_cols] = df.apply(row_call_proc, axis=1)
+        start_time = time.time()
+        df[agg_cols] = df.apply(lambda x: row_call_proc(x, id_col), axis=1)
+        end_time = time.time()
+        logger.info("get window union features cost time: " + str(end_time - start_time))
     else:
         agg_col_sql_str = ", ".join(agg_col_sqls)
         sql = f"SELECT {id_col}, {agg_col_sql_str} FROM {table} " \
@@ -203,9 +206,9 @@ def window(df, table, cols, id_col, partition_by_col, order_by_col):
     return df, agg_cols
 
 
-def row_call_proc(row):
-    value_tuple = tuple(row)
-    result = cursor.callproc(proc_name, value_tuple)
+def row_call_proc(row, id_col):
+    sql = f"{window_sql_parts[0]}WHERE {id_col}='{row[id_col]}' WINDOW{window_sql_parts[1]}"
+    result = cursor.execute(sql)
     res_tuple = result.fetchone()
     return pd.Series(res_tuple[1:])
 
