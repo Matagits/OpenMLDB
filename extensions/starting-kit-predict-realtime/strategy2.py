@@ -2,6 +2,9 @@ import json
 import os
 import pickle
 import sys
+import threading
+import time
+import uuid
 
 import pandas as pd
 
@@ -108,7 +111,6 @@ workspace_path：模型、数据的加载根文件夹
 
 # TODO
 def load_model_and_data(workspace_path):
-    # todo 预测时，历史数据累加不清除
     openmldb_helper.init(workspace_path, online=True)
     table_schema_path = get_table_schema_in_workspace(workspace_path)
     logger.info(f"Load Table Schema From {table_schema_path}")
@@ -176,6 +178,21 @@ def predict(data_info, pred_df):
     return result
 
 
+task_id = None
+data_info = None
+thread_exception = {}
+
+
+def load_model_thread():
+    global task_id, data_info, thread_exception
+
+    try:
+        data_info = load_model_and_data(workspace_path)
+    except Exception as e:
+        logger.error(f"Load Model Error, Exception {e}")
+        thread_exception[task_id] = 1
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1]
     if cmd == "train":
@@ -232,7 +249,22 @@ if __name__ == "__main__":
         eval_path = sys.argv[3]
 
         # load model and data info
-        data_info = load_model_and_data(workspace_path)
+        # data_info = load_model_and_data(workspace_path)
+
+        task_id = str(uuid.uuid4())
+        load_model_task_proc = {}
+        load_model_task_proc[task_id] = threading.Thread(target=load_model_thread)
+        load_model_task_proc[task_id].start()
+        while True:
+            thread = load_model_task_proc[task_id]
+            if thread.is_alive():
+                print({"success": True, "data": {"status": "Running"}})
+            elif task_id in thread_exception:
+                print({"success": True, "data": {"status": "Failed"}})
+            else:
+                print({"success": True, "data": {"status": "Success"}})
+                break
+            time.sleep(20)
 
         # load predict data offline
         logger.info(f"Loading predict data from {eval_path}")

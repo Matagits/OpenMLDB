@@ -157,7 +157,6 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
 
         print(df.columns.tolist())
         print(len(df))
-        print(df.head())
         print()
 
         if len(number_cols) > 0:
@@ -174,7 +173,6 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
                 print("Finished to get window union cols from openmldb")
                 print(len(df))
                 df.drop(columns=[partition_by_col], inplace=True)
-                print(df.head())
                 for agg_col in agg_cols:
                     feature_info[agg_col] = {
                         "feature_description": f"raw feature of {agg_col}",

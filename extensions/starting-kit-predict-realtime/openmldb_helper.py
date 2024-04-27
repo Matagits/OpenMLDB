@@ -2,9 +2,17 @@ import os
 import time
 
 import openmldb.dbapi
+import logging
 import pandas as pd
 from numpy import dtype
 from utils import get_create_table_sql_in_workspace, get_window_sql_in_workspace, get_train_df_csv_in_workspace
+
+logging.basicConfig(
+    level=os.environ.get("LOGLEVEL", "INFO"),
+    format="%(asctime)s %(name)-12s %(levelname)-4s %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__file__)
 
 db = None
 cursor = None
@@ -16,7 +24,7 @@ proc_name = "window_deploy"
 
 
 def init(workspace, online=False):
-    print(f"init, online_mode:{online}")
+    logger.info(f"init, online_mode:{online}")
     global db, cursor, online_mode, workspace_path
     online_mode, workspace_path = online, workspace
     retry = 60
@@ -25,46 +33,55 @@ def init(workspace, online=False):
             db = openmldb.dbapi.connect(zk="0.0.0.0:2181", zkPath="/openmldb")
             break
         except Exception as e:
-            print(e)
-            print(f"left retry: {retry}")
+            logger.warning(e)
+            logger.info(f"left retry: {retry}")
             time.sleep(5)
             retry -= 1
     cursor = db.cursor()
     try:
         cursor.execute(f"CREATE DATABASE {db_name}")
     except openmldb.dbapi.dbapi.DatabaseError as e:
-        print(e)
+        logger.warning(e)
     cursor.execute(f"USE {db_name}")
     execute_mode = "'online'" if online else "'offline'"
     cursor.execute(f"set @@execute_mode={execute_mode};")
 
     if online_mode:
-        create_table_sql_path = get_create_table_sql_in_workspace(workspace_path)
-        print(f"Load CreateTableSql From {create_table_sql_path}")
-        with open(create_table_sql_path, "r") as fp:
-            create_table_sql = fp.read()
         try:
-            cursor.execute(create_table_sql)
-        except openmldb.dbapi.dbapi.DatabaseError as e:
-            print(e)
+            create_table_sql_path = get_create_table_sql_in_workspace(workspace_path)
+            logger.info(f"Load CreateTableSql From {create_table_sql_path}")
+            with open(create_table_sql_path, "r") as fp:
+                create_table_sql = fp.read()
+            logger.info(f"CreateTableSql: {create_table_sql}")
+            try:
+                cursor.execute(create_table_sql)
+            except openmldb.dbapi.dbapi.DatabaseError as e:
+                logger.warning(e)
 
-        window_sql_path = get_window_sql_in_workspace(workspace_path)
-        print(f"Load WindowSql From {window_sql_path}")
-        with open(window_sql_path, "r") as fp:
-            window_sql = fp.read()
-        try:
-            cursor.execute(f"DEPLOY {proc_name} {window_sql}")
-        except openmldb.dbapi.dbapi.DatabaseError as e:
-            print(e)
+            train_df_csv_path = get_train_df_csv_in_workspace(workspace_path)
+            load_data_infile(table_name, train_df_csv_path)
+            logger.info("Finished loading train data")
 
-        train_df_csv_path = get_train_df_csv_in_workspace(workspace_path)
-        load_data_infile(table_name, train_df_csv_path)
+            window_sql_path = get_window_sql_in_workspace(workspace_path)
+            logger.info(f"Load WindowSql From {window_sql_path}")
+            with open(window_sql_path, "r") as fp:
+                window_sql = fp.read()
+            logger.info(f"WindowSql: {window_sql}")
+            try:
+                cursor.execute(f"DEPLOY {proc_name} {window_sql}")
+            except openmldb.dbapi.dbapi.DatabaseError as e:
+                logger.warning(e)
+            cursor.execute("show deployments;")
+            logger.info(f"Deployments: {cursor.fetchall()}")
+        except Exception as ex:
+            logger.warning(ex)
+    logger.info(f"Finished init")
 
 
 def append_window_union_features(df, number_cols, id_col, partition_by_col, sort_by_col):
-    print("Start to write df to openmldb")
+    logger.info("Start to write df to openmldb")
     write_df_to_openmldb(df, table_name)
-    print("Finished to write df to openmldb")
+    logger.info("Finished to write df to openmldb")
     return window(df, table_name, number_cols, id_col, partition_by_col, sort_by_col)
 
 
@@ -93,13 +110,14 @@ def write_df_to_openmldb(df, table):
         try:
             cursor.execute(f"DROP TABLE {table}")
         except openmldb.dbapi.dbapi.DatabaseError as e:
-            print(e)
+            logger.warning(e)
 
         sql = f"CREATE TABLE {table} ({', '.join(col_infos)})"
         cursor.execute(sql)
         create_table_sql_path = get_create_table_sql_in_workspace(workspace_path)
         with open(create_table_sql_path, "w") as fp:
             fp.write(sql)
+        logger.info(f"Write CreateTableSql to {create_table_sql_path}")
 
     write_to_db(df, table)
 
@@ -118,7 +136,7 @@ def write_to_db(df, table):
     print("start time: " + str(start_time))
     print("end time: " + str(end_time))
     print("cost: " + str(end_time - start_time))
-    print("Data written to openMLDB successfully!")
+    logger.info("Data written to openMLDB successfully!")
 
 
 def insert(row, table, cols):
@@ -140,10 +158,10 @@ def load_data_infile(table: str, file_path: str, mode: str = 'overwrite', block:
     if block:
         job_state = get_job_state(job_id)
         while job_state.lower() not in ['failed', 'finished', 'killed']:
-            print(f'load data infile job {job_id} state: {job_state}')
+            logger.info(f'load data infile job {job_id} state: {job_state}')
             time.sleep(5)
             job_state = get_job_state(job_id)
-        print(f'load data infile job {job_id} state: {job_state}')
+        logger.info(f'load data infile job {job_id} state: {job_state}')
     return job_id
 
 
@@ -170,7 +188,7 @@ def window(df, table, cols, id_col, partition_by_col, order_by_col):
         sql = f"SELECT {id_col}, {agg_col_sql_str} FROM {table} " \
               f"WINDOW w AS (PARTITION BY {partition_by_col} ORDER BY {order_by_col} " \
               f"ROWS BETWEEN 50 PRECEDING AND CURRENT ROW)"
-        print("sql: " + sql)
+        logger.info("sql: " + sql)
 
         window_sql_path = get_window_sql_in_workspace(workspace_path)
         with open(window_sql_path, "w") as fp:
@@ -224,10 +242,10 @@ def export_new_feature_outfile(sql: str, file_path: str, mode: str = 'overwrite'
     if block:
         job_state = get_job_state(job_id)
         while job_state.lower() not in ['failed', 'finished', 'killed']:
-            print(f'export new feature outfile job {job_id} state: {job_state}')
+            logger.info(f'export new feature outfile job {job_id} state: {job_state}')
             time.sleep(5)
             job_state = get_job_state(job_id)
-        print(f'export new feature outfile job {job_id} state: {job_state}')
+        logger.info(f'export new feature outfile job {job_id} state: {job_state}')
     return job_id
 
 
