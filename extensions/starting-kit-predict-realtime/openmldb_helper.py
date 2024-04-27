@@ -183,7 +183,17 @@ def window(df, table, cols, id_col, partition_by_col, order_by_col):
     if online_mode:
         print(agg_cols)
         start_time = time.time()
-        df[agg_cols] = df.apply(lambda x: row_call_proc(x, id_col), axis=1)
+        # df[agg_cols] = df.apply(lambda x: row_call_proc(x, id_col), axis=1)
+        # reqId需保证唯一
+        ids = ', '.join([f"'{reqId}'" for reqId in df[id_col]])
+        sql = f"{window_sql_parts[0]}WHERE {id_col} in ({ids}) WINDOW{window_sql_parts[1]}"
+        result = cursor.execute(sql)
+        res_tuple = result.fetchall()
+        all_cols = agg_cols.copy()
+        all_cols.insert(0, id_col)
+        df_aggs = pd.DataFrame(res_tuple, columns=all_cols)
+        logger.info(len(df_aggs))
+        df = pd.merge(df, df_aggs, on=id_col, how="left")
         end_time = time.time()
         logger.info("get window union features cost time: " + str(end_time - start_time))
     else:
