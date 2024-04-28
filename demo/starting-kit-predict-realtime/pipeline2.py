@@ -1,17 +1,15 @@
 import json
 import os
-import time
 
 import numpy as np
 
 import openmldb_helper
-from utils import md5_encode, reduce_mem_usage
+from utils import md5_encode
 from typing import Dict, List, Tuple
 import pandas as pd
-from collections import Counter, defaultdict
+from collections import defaultdict
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import OneHotEncoder
-from sklearn.feature_selection import VarianceThreshold, SelectKBest, chi2
 
 
 class DictOneHotEncoder(BaseEstimator, TransformerMixin):

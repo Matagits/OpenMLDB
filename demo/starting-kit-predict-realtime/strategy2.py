@@ -1,11 +1,7 @@
-import faulthandler
 import json
 import os
 import pickle
 import sys
-import threading
-import time
-import uuid
 
 import pandas as pd
 
@@ -18,12 +14,9 @@ from utils import (
     get_table_schema_in_workspace,
     get_task_type_in_workspace,
     get_train_dir_in_workspace,
-    get_window_sql_in_workspace,
     load_table_schema,
     load_train_data,
 )
-from openmldb_helper import init
-
 
 """
 训练
