@@ -46,6 +46,7 @@ def train(table_schema, typ, tables):
     # todo 区分train/predict，区分离在线模式
     if typ == "BinaryClassification":
         from pipeline2 import FeatureEngineerInitTransformer
+        from pipeline2 import FeatureEngineerOpenMLDBTransformer
         from pipeline2 import FeatureInfoSave
         from pipeline2 import FeatureEngineerTransformer
         from pipeline2 import FeatureReducedTransformer
@@ -56,6 +57,7 @@ def train(table_schema, typ, tables):
         # 全部的 step
         full_pipeline = Pipeline(steps=[
             ('feature_engineer_first', FeatureEngineerInitTransformer()),
+            ('feature_engineer_openmldb', FeatureEngineerOpenMLDBTransformer()),
             ('feature_engineer_second', FeatureEngineerTransformer()),
             ('feature_reduced', FeatureReducedTransformer()),
             ('feature_info_save', FeatureInfoSave()),

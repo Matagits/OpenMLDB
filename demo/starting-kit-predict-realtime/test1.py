@@ -2,10 +2,12 @@ import pandas as pd
 
 
 def test():
-    df = pd.DataFrame({'A': [1, 1], 'B': [4, 5]})
-    df1 = pd.DataFrame({'A': [1], 'C': [6]})
-    df2 = pd.merge(df1, df, on='A', how='left', left_index=True)
-    print(df2)
+    df = pd.DataFrame({'A': ['1', '1'], 'B': [4, 5]})
+    df = df.drop(columns=['A', 'C'])
+    print(df.dtypes)
+
+    # a = {'a':1, 'b':2}
+    # print(a['c'])
 
 
 def func1(row):

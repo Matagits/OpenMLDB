@@ -2,7 +2,7 @@ import json
 import os
 
 import numpy as np
-
+from numpy import dtype
 import openmldb_helper
 from utils import md5_encode
 from typing import Dict, List, Tuple
@@ -40,18 +40,18 @@ class DictOneHotEncoder(BaseEstimator, TransformerMixin):
         col_expanded = np.empty((0, X.shape[0]))
         for col, keys in self.keys_.items():
             for key in keys:
-                col_expanded = np.append(col_expanded, 
+                col_expanded = np.append(col_expanded,
                                          [np.array([(d[key] if isinstance(d, dict) and key in d else 0) for d in X[col]])],
                                          axis=0)
         return col_expanded.T
-    
+
     def get_feature_names_out(self, columns: List[str]):
         return [
             f"{col}_{key}"
             for col in columns
             for key in self.keys_[col]
         ]
-    
+
 
 
 """
@@ -73,7 +73,7 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None):
         return self
 
-    def transform(self, X) -> Tuple[pd.DataFrame, pd.DataFrame, Dict]:
+    def transform(self, X) -> Tuple[pd.DataFrame, pd.DataFrame, Dict, Dict]:
         """
         Args:
             X: [table_schema: Dict, tables: List[pd.DataFrame], label: Optional[pd.DataFrame]]
@@ -152,36 +152,74 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
             #         "type": "Category",
             #     }
         # print(df.head())
+        window_dict = {
+            "id_col": "reqId",
+            "sort_by_col": "eventTime",
+            "number_cols": number_cols,
+            "partition_by_col": ""
+        }
+        if len(string_cols) > 0:
+            if "userId" in string_cols:
+                partition_by_col = "userId"
+            elif "itemId" in string_cols:
+                partition_by_col = "itemId"
+            else:
+                partition_by_col = string_cols.pop()
+            df[partition_by_col] = target_entity_table[partition_by_col].fillna("")
+            window_dict["partition_by_col"] = partition_by_col
+        return df, label, feature_info, window_dict
+
+
+"""
+使用OpenMLDB添加窗口特征
+"""
+
+class FeatureEngineerOpenMLDBTransformer(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        self.category_columns = None
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X) -> Tuple[pd.DataFrame, pd.DataFrame, Dict]:
+        """
+        Args:
+            X: [df: pd.DataFrame, label: pd.DataFrame, feature_info: Dict]
+        return:
+            [df:pd.DataFrame, label:pd.DataFrame, feat_info: Dict]
+            df: 基于所有的 tables 生成的初步特征结果
+            label: reqId 对应的 label
+            feat_info: 每一个特征列的信息
+        """
+        df, label, feature_info, window_dict = X
 
         print(df.columns.tolist())
         print(len(df))
+        print(f"window_dict: {window_dict}")
         print()
 
-        if len(number_cols) > 0:
-            if len(string_cols) > 0:
-                if "userId" in string_cols:
-                    partition_by_col = "userId"
-                elif "itemId" in string_cols:
-                    partition_by_col = "itemId"
-                else:
-                    partition_by_col = string_cols.pop()
-                df[partition_by_col] = target_entity_table[partition_by_col].fillna("")
-
-                df, agg_cols = openmldb_helper.append_window_union_features(df, number_cols, 'reqId', partition_by_col, "eventTime")
-                print("Finished to get window union cols from openmldb")
-                print(len(df))
-                df.drop(columns=[partition_by_col], inplace=True)
-                for agg_col in agg_cols:
-                    feature_info[agg_col] = {
-                        "feature_description": f"raw feature of {agg_col}",
-                        "type": "Number",
-                    }
-            else:
-                print("No string features")
-        else:
+        if window_dict["partition_by_col"] == "":
+            print("No valid partition by col")
+            df = df.drop(columns=[window_dict["sort_by_col"]])
+            return df, label, feature_info
+        if len(window_dict["number_cols"]) <= 0:
             print("No number features")
+            df = df.drop(columns=[window_dict["sort_by_col"], window_dict["partition_by_col"]])
+            return df, label, feature_info
 
-        df.drop(columns=['eventTime'], inplace=True)
+        partition_by_col = window_dict["partition_by_col"]
+        sort_by_col = window_dict["sort_by_col"]
+        df, agg_cols = openmldb_helper.append_window_union_features(df, window_dict["number_cols"], 'reqId',
+                                                                    partition_by_col, sort_by_col)
+        print("Finished to get window union cols from openmldb")
+        print(len(df))
+        for agg_col in agg_cols:
+            feature_info[agg_col] = {
+                "feature_description": f"raw feature of {agg_col}",
+                "type": "Number",
+            }
+
+        df = df.drop(columns=[window_dict["sort_by_col"], window_dict["partition_by_col"]])
         print("columns: " + str(df.columns.tolist()))
         return df, label, feature_info
 
@@ -244,7 +282,7 @@ class FeatureEngineerTransformer(BaseEstimator, TransformerMixin):
         # print(table.columns)
         # print(feat_info)
         return table, label, feat_info
-    
+
 
 class FeatureReducedTransformer(BaseEstimator, TransformerMixin):
     def __init__(self) -> None:
@@ -262,7 +300,7 @@ class FeatureReducedTransformer(BaseEstimator, TransformerMixin):
                 digit_columns.append(col_name)
             else:
                 digit_columns.extend(col_info["colname_transfer"])
-        
+
         if len(digit_columns) == 0:
             return self
 
@@ -270,7 +308,7 @@ class FeatureReducedTransformer(BaseEstimator, TransformerMixin):
         for column in digit_columns[1:]:  # 不能直接 table.var()，会直接内存爆掉
             if table[column].var() >= self.th:
                 self.features_to_keep_.append(column)
-        
+
         # 这里可以根据 label 对不必要的特征进行过滤
         print("end to variance_threshold fit")
         return self
@@ -290,19 +328,19 @@ transform 阶段，对 dataframe 数据进行过滤，只留取 feature_info 中
 class FeatureInfoSave(BaseEstimator, TransformerMixin):
     def __init__(self) -> None:
         # table 中有用的列名，根据 feat-info 与当前的 table-column 交集生成
-        self.col_name_in_table = []  
+        self.col_name_in_table = []
         # feat-info 的原始列名与特征转换后列名的映射关系
         # col_name_mapping： {
         #     "cost": "cost", # 数值型特征，没有转换
         #     "eventTime_weekday": ["eventTime_weekday_0", "eventTime_weekday_1", ...] # 非数值型特征
         # }
         self.col_name_mapping = defaultdict(list)
-    
+
     def fit(self, X: Tuple[pd.DataFrame, pd.DataFrame, Dict], y=None):
         table, _, feat_info = X
         print("FeatureInfoSave" + str(table.columns.tolist()))
         print(table.head())
-        
+
         table_columns = set(table.columns)
         for feat_col_name, feat_col_info in feat_info.items():
             if feat_col_info["type"] == "Number":
