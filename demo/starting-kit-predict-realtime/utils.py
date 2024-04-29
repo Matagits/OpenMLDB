@@ -59,6 +59,10 @@ def get_window_sql_in_workspace(workspace_path):
     return os.path.join(workspace_path, "window_sql")
 
 
+def get_index_sql_in_workspace(workspace_path):
+    return os.path.join(workspace_path, "index_sql")
+
+
 def md5_encode(item: str):
     md5_hash = int(
         hashlib.md5(item.encode()).hexdigest(), 16

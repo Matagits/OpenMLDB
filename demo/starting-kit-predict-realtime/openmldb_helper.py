@@ -5,7 +5,7 @@ import openmldb.dbapi
 import logging
 import pandas as pd
 from numpy import dtype
-from utils import get_create_table_sql_in_workspace, get_window_sql_in_workspace, get_train_df_csv_in_workspace
+from utils import get_create_table_sql_in_workspace, get_index_sql_in_workspace, get_window_sql_in_workspace, get_train_df_csv_in_workspace
 
 logging.basicConfig(
     level=os.environ.get("LOGLEVEL", "INFO"),
@@ -21,7 +21,7 @@ workspace_path = ""
 db_name = "db1"
 table_name = "automl"
 proc_name = "window_deploy"
-window_sql_parts = []
+window_sql = ""
 
 
 def init(workspace, online=False):
@@ -54,25 +54,27 @@ def init(workspace, online=False):
             with open(create_table_sql_path, "r") as fp:
                 create_table_sql = fp.read()
             logger.info(f"CreateTableSql: {create_table_sql}")
-            create_table_sql = create_table_sql[:-1] + ", INDEX(KEY=(reqId, userId), TS=eventTime))"
+            index_sql_path = get_index_sql_in_workspace(workspace_path)
+            logger.info(f"Load IndexSql From {index_sql_path}")
+            with open(index_sql_path, "r") as fp:
+                index_sql = fp.read()
+            create_table_sql = f"{create_table_sql[:-1]}, {index_sql})"
             logger.info(f"new create: {create_table_sql}")
             try:
                 cursor.execute(create_table_sql)
             except openmldb.dbapi.dbapi.DatabaseError as e:
                 logger.warning(e)
 
-            # train_df_csv_path = get_train_df_csv_in_workspace(workspace_path)
-            # load_data_infile(table_name, train_df_csv_path)
-            # logger.info("Finished loading train data")
+            train_df_csv_path = get_train_df_csv_in_workspace(workspace_path)
+            load_data_infile(table_name, train_df_csv_path)
+            logger.info("Finished loading train data")
 
             window_sql_path = get_window_sql_in_workspace(workspace_path)
             logger.info(f"Load WindowSql From {window_sql_path}")
-            global window_sql_parts
+            global window_sql
             with open(window_sql_path, "r") as fp:
                 window_sql = fp.read()
             logger.info(f"WindowSql: {window_sql}")
-            window_sql_parts = window_sql.split('WINDOW')
-            logger.info(f"window_sql_parts: {window_sql_parts}")
         except Exception as ex:
             logger.warning(ex)
     logger.info(f"Finished init")
@@ -183,18 +185,7 @@ def window(df, table, cols, id_col, partition_by_col, order_by_col):
     if online_mode:
         print(agg_cols)
         start_time = time.time()
-        # df[agg_cols] = df.apply(lambda x: row_call_proc(x, id_col), axis=1)
-        # reqId需保证唯一
-        ids = ', '.join([f"'{reqId}'" for reqId in df[id_col]])
-        sql = f"{window_sql_parts[0]}WHERE {id_col} in ({ids}) WINDOW{window_sql_parts[1]}"
-        logger.info(f"sql: {sql}")
-        result = cursor.execute(sql)
-        res_tuple = result.fetchall()
-        all_cols = agg_cols.copy()
-        all_cols.insert(0, id_col)
-        df_aggs = pd.DataFrame(res_tuple, columns=all_cols)
-        logger.info(len(df_aggs))
-        df = pd.merge(df, df_aggs, on=id_col, how="left")
+        df[agg_cols] = df.apply(row_call_proc, axis=1)
         end_time = time.time()
         logger.info("get window union features cost time: " + str(end_time - start_time))
     else:
@@ -208,6 +199,10 @@ def window(df, table, cols, id_col, partition_by_col, order_by_col):
         with open(window_sql_path, "w") as fp:
             fp.write(sql)
 
+        index_sql_path = get_index_sql_in_workspace(workspace_path)
+        with open(index_sql_path, "w") as fp:
+            fp.write(f"index(key={partition_by_col}, ttl=50, ttl_type=latest, ts=`{order_by_col}`)")
+
         all_cols = agg_cols.copy()
         all_cols.insert(0, id_col)
         df_agg_cols = get_window_df(sql, all_cols)
@@ -217,9 +212,10 @@ def window(df, table, cols, id_col, partition_by_col, order_by_col):
     return df, agg_cols
 
 
-def row_call_proc(row, id_col):
-    sql = f"{window_sql_parts[0]}WHERE {id_col}='{row[id_col]}' WINDOW{window_sql_parts[1]}"
-    result = cursor.execute(sql)
+def row_call_proc(row):
+    value_tuple = tuple(row)
+    # logger.info(f"{window_sql} CONFIG (execute_mode = 'request', values = {value_tuple})")
+    result = cursor.execute(f"{window_sql} CONFIG (execute_mode = 'request', values = {value_tuple})")
     res_tuple = result.fetchone()
     return pd.Series(res_tuple[1:])
 

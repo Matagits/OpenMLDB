@@ -1,5 +1,5 @@
 # 使用基础镜像
-FROM 4pdosc/openmldb:0.8.5
+FROM harbor.4pd.io/openmldb/openmldb:0.9.0
 
 ADD . /root/test
 WORKDIR /root/test
