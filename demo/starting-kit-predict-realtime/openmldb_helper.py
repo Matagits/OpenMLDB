@@ -54,16 +54,16 @@ def init(workspace, online=False):
             with open(create_table_sql_path, "r") as fp:
                 create_table_sql = fp.read()
             logger.info(f"CreateTableSql: {create_table_sql}")
-            # create_table_sql = create_table_sql[:-1] + ", INDEX(KEY=(reqId, userId), TS=eventTime))"
-            # logger.info(f"new create: {create_table_sql}")
+            create_table_sql = create_table_sql[:-1] + ", INDEX(KEY=(reqId, userId), TS=eventTime))"
+            logger.info(f"new create: {create_table_sql}")
             try:
                 cursor.execute(create_table_sql)
             except openmldb.dbapi.dbapi.DatabaseError as e:
                 logger.warning(e)
 
-            train_df_csv_path = get_train_df_csv_in_workspace(workspace_path)
-            load_data_infile(table_name, train_df_csv_path)
-            logger.info("Finished loading train data")
+            # train_df_csv_path = get_train_df_csv_in_workspace(workspace_path)
+            # load_data_infile(table_name, train_df_csv_path)
+            # logger.info("Finished loading train data")
 
             window_sql_path = get_window_sql_in_workspace(workspace_path)
             logger.info(f"Load WindowSql From {window_sql_path}")
@@ -187,6 +187,7 @@ def window(df, table, cols, id_col, partition_by_col, order_by_col):
         # reqId需保证唯一
         ids = ', '.join([f"'{reqId}'" for reqId in df[id_col]])
         sql = f"{window_sql_parts[0]}WHERE {id_col} in ({ids}) WINDOW{window_sql_parts[1]}"
+        logger.info(f"sql: {sql}")
         result = cursor.execute(sql)
         res_tuple = result.fetchall()
         all_cols = agg_cols.copy()

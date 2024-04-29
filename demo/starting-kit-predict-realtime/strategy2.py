@@ -270,7 +270,7 @@ if __name__ == "__main__":
         #     print(f"Predict: {i}")
         #     result = predict(data_info, pred_df.iloc[i: i+100])
 
-        result = predict(data_info, pred_df.iloc[0: 100])
+        result = predict(data_info, pred_df.iloc[0: 10])
 
         # save result to local
         logger.info(f"Saving predict result to pred.csv")
