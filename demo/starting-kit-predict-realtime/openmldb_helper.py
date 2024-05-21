@@ -46,6 +46,7 @@ def init(workspace, online=False):
     cursor.execute(f"USE {db_name}")
     execute_mode = "'online'" if online else "'offline'"
     cursor.execute(f"set @@execute_mode={execute_mode};")
+    cursor.execute(f"set @@spark_config='spark.driver.memory=4g';")
 
     if online_mode:
         try:
@@ -135,9 +136,7 @@ def write_to_db(df, table):
         load_data_infile(table, train_df_csv_path)
 
     end_time = time.time()
-    print("start time: " + str(start_time))
-    print("end time: " + str(end_time))
-    print("cost: " + str(end_time - start_time))
+    logger.info("write_to_db cost time: " + str(end_time - start_time))
     logger.info("Data written to openMLDB successfully!")
 
 
@@ -185,7 +184,16 @@ def window(df, table, cols, id_col, partition_by_col, order_by_col):
     if online_mode:
         print(agg_cols)
         start_time = time.time()
-        df[agg_cols] = df.apply(row_call_proc, axis=1)
+        # df[agg_cols] = df.apply(row_call_proc, axis=1)
+        temp = df.apply(lambda x: tuple(x), axis=1)
+        temp_list = temp.values.tolist()
+        result = cursor.execute(f"{window_sql} CONFIG (execute_mode = 'request', values = {temp_list})")
+        res_tuple = result.fetchall()
+        result_df = pd.DataFrame(res_tuple)
+        all_cols = agg_cols.copy()
+        all_cols.insert(0, id_col)
+        result_df.columns = all_cols
+        df = pd.merge(df, result_df, on=id_col, how="left")
         end_time = time.time()
         logger.info("get window union features cost time: " + str(end_time - start_time))
     else:

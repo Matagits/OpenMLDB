@@ -89,7 +89,7 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
         target_entity_table = tables[table_schema["target_entity"]]
         # print(target_entity_table.info())
         number_cols = []
-        string_cols = set()
+        string_cols = []
         for c in table_schema["entity_detail"][table_schema["target_entity"]]["features"]:
             col_name = c["id"].split(".", 1)[1]
             if c["skip"]:
@@ -97,7 +97,7 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
             if col_name == "reqId": # 保留 reqId，在 FeatureInfoSave 需要进行数据存储
                 df[col_name] = target_entity_table[col_name].astype(str)
             elif c["feature_type"] == "String":
-                string_cols.add(col_name)
+                string_cols.append(col_name)
             elif c["feature_type"] == "Int" or c["feature_type"] == "BigInt":
                 df[col_name] = target_entity_table[col_name].fillna(0).infer_objects(copy=False).astype(int)
                 feature_info[col_name] = {
@@ -164,7 +164,7 @@ class FeatureEngineerInitTransformer(BaseEstimator, TransformerMixin):
             elif "itemId" in string_cols:
                 partition_by_col = "itemId"
             else:
-                partition_by_col = string_cols.pop()
+                partition_by_col = string_cols[0]
             df[partition_by_col] = target_entity_table[partition_by_col].fillna("")
             window_dict["partition_by_col"] = partition_by_col
         return df, label, feature_info, window_dict
