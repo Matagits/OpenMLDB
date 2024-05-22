@@ -1,3 +1,4 @@
+import glob
 import os
 import time
 
@@ -5,7 +6,10 @@ import openmldb.dbapi
 import logging
 import pandas as pd
 from numpy import dtype
+
+from autofe import OpenMLDBSQLGenerator, AutoXTrain
 from utils import get_create_table_sql_in_workspace, get_index_sql_in_workspace, get_window_sql_in_workspace, get_train_df_csv_in_workspace
+from sklearn.model_selection import train_test_split
 
 logging.basicConfig(
     level=os.environ.get("LOGLEVEL", "INFO"),
@@ -81,14 +85,19 @@ def init(workspace, online=False):
     logger.info(f"Finished init")
 
 
-def append_window_union_features(df, number_cols, id_col, partition_by_col, sort_by_col):
+def append_window_union_features(df, label, number_cols, id_col, partition_by_col, sort_by_col):
+    # print(df.head())
+    # print(df[[id_col, partition_by_col, sort_by_col]].head())
+    print(label.head())
+
     logger.info("Start to write df to openmldb")
     write_df_to_openmldb(df, table_name)
     logger.info("Finished to write df to openmldb")
-    return window(df, table_name, number_cols, id_col, partition_by_col, sort_by_col)
+    return window(df, label, table_name, number_cols, id_col, partition_by_col, sort_by_col)
 
 
-def write_df_to_openmldb(df, table):
+def write_df_to_openmldb(df_origin, table):
+    df = df_origin.copy()
     dtypes = df.dtypes.to_dict()
     col_infos = []
     timestamp_cols = []
@@ -172,7 +181,7 @@ def get_job_state(job_id: str) -> str:
         return job_info[2]
 
 
-def window(df, table, cols, id_col, partition_by_col, order_by_col):
+def window(df, label, table, cols, id_col, partition_by_col, order_by_col):
     agg_cols = []
     agg_col_sqls = []
     agg_funcs = ["max", "min", "avg"]
@@ -197,10 +206,34 @@ def window(df, table, cols, id_col, partition_by_col, order_by_col):
         end_time = time.time()
         logger.info("get window union features cost time: " + str(end_time - start_time))
     else:
-        agg_col_sql_str = ", ".join(agg_col_sqls)
-        sql = f"SELECT {id_col}, {agg_col_sql_str} FROM {table} " \
-              f"WINDOW w AS (PARTITION BY {partition_by_col} ORDER BY {order_by_col} " \
-              f"ROWS BETWEEN 50 PRECEDING AND CURRENT ROW)"
+
+        logger.info("autofe")
+        conf = {
+            'tables': [
+                {
+                    'table': table_name
+                }
+            ],
+            'main_table': table_name,
+            'windows': [
+                {
+                    'name': 'w1',
+                    'partition_by': partition_by_col,
+                    'order_by': order_by_col,
+                    'window_type': 'rows_range',
+                    'start': '1d PRECEDING',
+                    'end': 'CURRENT ROW'
+                }
+            ]
+        }
+        sql_generator = OpenMLDBSQLGenerator(conf, df)
+        sql, feature_path = sql_generator.time_series_feature_sql()
+        logger.error(f"time_series_feature_sql: {sql}")
+
+        # agg_col_sql_str = ", ".join(agg_col_sqls)
+        # sql = f"SELECT {id_col}, {agg_col_sql_str} FROM {table} " \
+        #       f"WINDOW w AS (PARTITION BY {partition_by_col} ORDER BY {order_by_col} " \
+        #       f"ROWS BETWEEN 50 PRECEDING AND CURRENT ROW)"
         logger.info("sql: " + sql)
 
         window_sql_path = get_window_sql_in_workspace(workspace_path)
@@ -213,9 +246,43 @@ def window(df, table, cols, id_col, partition_by_col, order_by_col):
 
         all_cols = agg_cols.copy()
         all_cols.insert(0, id_col)
-        df_agg_cols = get_window_df(sql, all_cols)
+        df_agg_cols = get_window_df(sql, all_cols, feature_path)
 
+        logger.error(f"df length: {len(df)}")
+        logger.error(f"df_agg_cols length: {len(df_agg_cols)}")
         df = pd.merge(df, df_agg_cols, on=id_col, how="left")
+
+        label.index = df.index
+        logger.error(f"df length: {len(df)}")
+        logger.error(f"label length: {len(label)}")
+        logger.error(f"df columns: {df.columns.tolist()}")
+        df['automl_label'] = label
+        logger.error(f"after df columns: {df.columns.tolist()}")
+
+        df.drop(columns=['eventTime'], inplace=True)
+        train_set, test_set_with_y = train_test_split(df, train_size=0.8)
+        test_set = test_set_with_y.drop(columns=['automl_label'])
+
+        offline_feature_path = '/tmp/automl_offline_feature'
+
+        # save for backup
+        train_name = 'train.parquet'
+        test_name = 'test.parquet'
+        train_set.to_parquet(offline_feature_path + '/' + train_name, index=False)
+        test_set.to_parquet(offline_feature_path + '/' + test_name, index=False)
+
+        id_list = [id_col]
+        topk = 10
+        logger.error(f'get top {topk} features')
+        topk_features = AutoXTrain(debug=True).get_top_features(
+            train_set, test_set, id_list, 'automl_label', offline_feature_path, topk)
+        logger.error(f'top {len(topk_features)} feas: {topk_features}')
+
+        # decode feature to final sql
+        final_sql = sql_generator.decode_time_series_feature_sql_column(
+            topk_features)
+        logger.error(f'final sql: {final_sql}')
+
     df[agg_cols] = df[agg_cols].fillna(0)
     return df, agg_cols
 
@@ -228,32 +295,39 @@ def row_call_proc(row):
     return pd.Series(res_tuple[1:])
 
 
-def get_window_df(sql, cols):
+def get_window_df(sql, cols, feature_path):
     export_csv_dir = "window_union"
     export_new_feature_outfile(sql, export_csv_dir)
-    csv_files = os.listdir(export_csv_dir)
-    csv_files.sort()
-    df_parts = []
-    for file in csv_files:
-        if not file.endswith(".csv"):
-            continue
-        file_path = os.path.join(export_csv_dir, file)
-        csv_f = pd.read_csv(file_path)
-        df = pd.DataFrame(csv_f, columns=cols)
-        df_parts.append(df)
-    if len(df_parts) > 0:
-        df = pd.concat(df_parts)
-        df = df.reset_index(drop=True)
-    else:
-        df = df_parts[0]
+
+    def remove_prefix(text, prefix): return text[len(
+        prefix):] if text.startswith(prefix) else text
+    feature_path = remove_prefix(feature_path, 'file://')
+    logging.info(f'load {feature_path}')
+    df = pd.concat(map(pd.read_parquet, glob.glob(
+        os.path.join('', feature_path + '/*.parquet'))))
+
+    # csv_files = os.listdir(feature_path)
+    # csv_files.sort()
+    # df_parts = []
+    # for file in csv_files:
+    #     if not file.endswith(".parquet"):
+    #         continue
+    #     file_path = os.path.join(export_csv_dir, file)
+    #     csv_f = pd.read_parquet(file_path)
+    #     df = pd.DataFrame(csv_f)
+    #     df_parts.append(df)
+    # if len(df_parts) > 0:
+    #     df = pd.concat(df_parts)
+    #     df = df.reset_index(drop=True)
+    # else:
+    #     df = df_parts[0]
     return df
 
 
 def export_new_feature_outfile(sql: str, file_path: str, mode: str = 'overwrite',
                                block: bool = True):
     file_path = f"file://{os.path.abspath(file_path)}"
-    cursor.execute(
-        f"{sql} INTO OUTFILE '{file_path}' options(delimiter=',', format='csv', mode='{mode}')")
+    cursor.execute(sql)
     job_id = None
     for job_info in cursor.fetchall():
         job_id = job_info[0]
