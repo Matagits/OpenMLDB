@@ -59,6 +59,10 @@ def get_window_sql_in_workspace(workspace_path):
     return os.path.join(workspace_path, "window_sql")
 
 
+def get_top_features_in_workspace(workspace_path):
+    return os.path.join(workspace_path, "top_features")
+
+
 def get_index_sql_in_workspace(workspace_path):
     return os.path.join(workspace_path, "index_sql")
 

@@ -8,7 +8,7 @@ import pandas as pd
 from numpy import dtype
 
 from autofe import OpenMLDBSQLGenerator, AutoXTrain
-from utils import get_create_table_sql_in_workspace, get_index_sql_in_workspace, get_window_sql_in_workspace, get_train_df_csv_in_workspace
+from utils import get_create_table_sql_in_workspace, get_index_sql_in_workspace, get_window_sql_in_workspace, get_top_features_in_workspace, get_train_df_csv_in_workspace
 from sklearn.model_selection import train_test_split
 
 logging.basicConfig(
@@ -192,25 +192,33 @@ def window(df, label, table, cols, id_col, partition_by_col, order_by_col):
 
     if online_mode:
         start_time = time.time()
-        # df[agg_cols] = df.apply(row_call_proc, axis=1)
-        temp = df.apply(lambda x: tuple(x), axis=1)
+
+        # temp = df.apply(lambda x: tuple(x), axis=1)
+        # logger.error(f"df: \n{df.head()}")
+        # temp_list = temp.values.tolist()
+        # logger.error(f"temp_list: {temp_list}")
+        # result = cursor.execute(f"{window_sql} CONFIG (execute_mode = 'request', values = {temp_list})")
+        # res_tuple = result.fetchall()
+        # logger.error(f"res_tuple len: {len(res_tuple)}")
+        # result_df = pd.DataFrame(res_tuple)
+        # logger.error(f"result_df: \n{result_df.head()}")
+        # # all_cols = agg_cols.copy()
+        # # all_cols.insert(0, id_col)
+        # out_schema = result.get_resultset_schema()
+        # logger.error(f"out_schema: {out_schema}, type: {type(out_schema)}")
+        # columns = [col['name'] for col in out_schema]
+        # logger.error(f"columns: {columns}, type: {type(columns)}")
+        # result_df.columns = columns
+        # logger.error(f"after result_df: \n {result_df.head()}")
+        # df = pd.merge(df, result_df, on=id_col, how="left")
+
+        top_features_path = get_top_features_in_workspace(workspace_path)
+        with open(top_features_path, "r") as fp:
+            top_features = eval(fp.read())
+        df[top_features] = df.apply(row_call_proc, axis=1)
         logger.error(f"df: \n{df.head()}")
-        temp_list = temp.values.tolist()
-        logger.error(f"temp_list: {temp_list}")
-        result = cursor.execute(f"{window_sql} CONFIG (execute_mode = 'request', values = {temp_list})")
-        res_tuple = result.fetchall()
-        logger.error(f"res_tuple len: {len(res_tuple)}")
-        result_df = pd.DataFrame(res_tuple)
-        logger.error(f"result_df: \n{result_df.head()}")
-        # all_cols = agg_cols.copy()
-        # all_cols.insert(0, id_col)
-        out_schema = result.get_resultset_schema()
-        logger.error(f"out_schema: {out_schema}, type: {type(out_schema)}")
-        columns = [col['name'] for col in out_schema]
-        logger.error(f"columns: {columns}, type: {type(columns)}")
-        result_df.columns = columns
-        logger.error(f"after result_df: \n {result_df.head()}")
-        df = pd.merge(df, result_df, on=id_col, how="left")
+        agg_cols = top_features
+
         end_time = time.time()
         logger.info("get window union features cost time: " + str(end_time - start_time))
     else:
@@ -292,6 +300,10 @@ def window(df, label, table, cols, id_col, partition_by_col, order_by_col):
         df = pd.merge(df, df1, on=id_col, how="left")
         agg_cols.extend(topk_features)
         logger.error(f'agg_cols: {agg_cols}')
+
+        top_features_path = get_top_features_in_workspace(workspace_path)
+        with open(top_features_path, "w") as fp:
+            fp.write(str(topk_features))
 
         window_sql_path = get_window_sql_in_workspace(workspace_path)
         with open(window_sql_path, "w") as fp:

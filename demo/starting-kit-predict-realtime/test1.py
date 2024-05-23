@@ -1,17 +1,16 @@
-import pandas as pd
+
 
 
 def test():
-    df = pd.DataFrame({'A': ['1', '1'], 'B': [4, 5]})
-    df = df.drop(columns=['A', 'C'])
-    print(df.dtypes)
+    a = ['1', 2, 3]
+    with open('list', "w") as fp:
+        fp.write(str(a))
 
-    # a = {'a':1, 'b':2}
-    # print(a['c'])
+    with open('list', "r") as fp:
+        b = eval(fp.read())
 
+    c = 1
 
-def func1(row):
-    return pd.Series((1,1))
 
 
 if __name__ == "__main__":
