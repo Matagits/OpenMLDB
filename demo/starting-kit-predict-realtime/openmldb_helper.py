@@ -54,17 +54,24 @@ def init(workspace, online=False):
 
     if online_mode:
         try:
+            try:
+                cursor.execute(f"DROP TABLE {table_name}")
+            except openmldb.dbapi.dbapi.DatabaseError as e:
+                logger.warning(e)
+
             create_table_sql_path = get_create_table_sql_in_workspace(workspace_path)
             logger.info(f"Load CreateTableSql From {create_table_sql_path}")
             with open(create_table_sql_path, "r") as fp:
                 create_table_sql = fp.read()
             logger.info(f"CreateTableSql: {create_table_sql}")
+
             index_sql_path = get_index_sql_in_workspace(workspace_path)
             logger.info(f"Load IndexSql From {index_sql_path}")
             with open(index_sql_path, "r") as fp:
                 index_sql = fp.read()
             create_table_sql = f"{create_table_sql[:-1]}, {index_sql})"
             logger.info(f"new create: {create_table_sql}")
+
             try:
                 cursor.execute(create_table_sql)
             except openmldb.dbapi.dbapi.DatabaseError as e:
@@ -88,7 +95,6 @@ def init(workspace, online=False):
 def append_window_union_features(df, label, number_cols, id_col, partition_by_col, sort_by_col):
     # print(df.head())
     # print(df[[id_col, partition_by_col, sort_by_col]].head())
-    print(label.head())
 
     logger.info("Start to write df to openmldb")
     write_df_to_openmldb(df, table_name)
@@ -183,25 +189,27 @@ def get_job_state(job_id: str) -> str:
 
 def window(df, label, table, cols, id_col, partition_by_col, order_by_col):
     agg_cols = []
-    agg_col_sqls = []
-    agg_funcs = ["max", "min", "avg"]
-    for agg_func in agg_funcs:
-        for col_name in cols:
-            agg_cols.append(f"{col_name}_{agg_func}")
-            agg_col_sqls.append(f"{agg_func}({col_name}) OVER w AS {col_name}_{agg_func}")
 
     if online_mode:
-        print(agg_cols)
         start_time = time.time()
         # df[agg_cols] = df.apply(row_call_proc, axis=1)
         temp = df.apply(lambda x: tuple(x), axis=1)
+        logger.error(f"df: \n{df.head()}")
         temp_list = temp.values.tolist()
+        logger.error(f"temp_list: {temp_list}")
         result = cursor.execute(f"{window_sql} CONFIG (execute_mode = 'request', values = {temp_list})")
         res_tuple = result.fetchall()
+        logger.error(f"res_tuple len: {len(res_tuple)}")
         result_df = pd.DataFrame(res_tuple)
-        all_cols = agg_cols.copy()
-        all_cols.insert(0, id_col)
-        result_df.columns = all_cols
+        logger.error(f"result_df: \n{result_df.head()}")
+        # all_cols = agg_cols.copy()
+        # all_cols.insert(0, id_col)
+        out_schema = result.get_resultset_schema()
+        logger.error(f"out_schema: {out_schema}, type: {type(out_schema)}")
+        columns = [col['name'] for col in out_schema]
+        logger.error(f"columns: {columns}, type: {type(columns)}")
+        result_df.columns = columns
+        logger.error(f"after result_df: \n {result_df.head()}")
         df = pd.merge(df, result_df, on=id_col, how="left")
         end_time = time.time()
         logger.info("get window union features cost time: " + str(end_time - start_time))
@@ -226,6 +234,8 @@ def window(df, label, table, cols, id_col, partition_by_col, order_by_col):
                 }
             ]
         }
+        offline_feature_path = '/tmp/automl_offline_feature'
+
         sql_generator = OpenMLDBSQLGenerator(conf, df)
         sql, feature_path = sql_generator.time_series_feature_sql()
         logger.error(f"time_series_feature_sql: {sql}")
@@ -236,34 +246,24 @@ def window(df, label, table, cols, id_col, partition_by_col, order_by_col):
         #       f"ROWS BETWEEN 50 PRECEDING AND CURRENT ROW)"
         logger.info("sql: " + sql)
 
-        window_sql_path = get_window_sql_in_workspace(workspace_path)
-        with open(window_sql_path, "w") as fp:
-            fp.write(sql)
-
-        index_sql_path = get_index_sql_in_workspace(workspace_path)
-        with open(index_sql_path, "w") as fp:
-            fp.write(f"index(key={partition_by_col}, ttl=50, ttl_type=latest, ts=`{order_by_col}`)")
-
         all_cols = agg_cols.copy()
         all_cols.insert(0, id_col)
         df_agg_cols = get_window_df(sql, all_cols, feature_path)
 
         logger.error(f"df length: {len(df)}")
         logger.error(f"df_agg_cols length: {len(df_agg_cols)}")
-        df = pd.merge(df, df_agg_cols, on=id_col, how="left")
+        df_autox = pd.merge(df[id_col], df_agg_cols, on=id_col, how="left")
 
-        label.index = df.index
-        logger.error(f"df length: {len(df)}")
+        label.index = df_autox.index
+        logger.error(f"df length: {len(df_autox)}")
         logger.error(f"label length: {len(label)}")
-        logger.error(f"df columns: {df.columns.tolist()}")
-        df['automl_label'] = label
-        logger.error(f"after df columns: {df.columns.tolist()}")
+        logger.error(f"df columns: {df_autox.columns.tolist()}")
+        df_autox['automl_label'] = label
+        logger.error(f"after df columns: {df_autox.columns.tolist()}")
 
-        df.drop(columns=['eventTime'], inplace=True)
-        train_set, test_set_with_y = train_test_split(df, train_size=0.8)
+        # df_autox.drop(columns=['eventTime'], inplace=True)
+        train_set, test_set_with_y = train_test_split(df_autox, train_size=0.8)
         test_set = test_set_with_y.drop(columns=['automl_label'])
-
-        offline_feature_path = '/tmp/automl_offline_feature'
 
         # save for backup
         train_name = 'train.parquet'
@@ -272,7 +272,7 @@ def window(df, label, table, cols, id_col, partition_by_col, order_by_col):
         test_set.to_parquet(offline_feature_path + '/' + test_name, index=False)
 
         id_list = [id_col]
-        topk = 10
+        topk = 20
         logger.error(f'get top {topk} features')
         topk_features = AutoXTrain(debug=True).get_top_features(
             train_set, test_set, id_list, 'automl_label', offline_feature_path, topk)
@@ -280,8 +280,26 @@ def window(df, label, table, cols, id_col, partition_by_col, order_by_col):
 
         # decode feature to final sql
         final_sql = sql_generator.decode_time_series_feature_sql_column(
-            topk_features)
+            id_col, topk_features)
         logger.error(f'final sql: {final_sql}')
+
+        logger.error(f'df.head: {df.head()}')
+        all_cols = topk_features.copy()
+        all_cols.insert(0, id_col)
+        logger.error(f'all_cols: {all_cols}')
+        df1 = df_autox[all_cols]
+        logger.error(f'df1.head: {df1.head()}')
+        df = pd.merge(df, df1, on=id_col, how="left")
+        agg_cols.extend(topk_features)
+        logger.error(f'agg_cols: {agg_cols}')
+
+        window_sql_path = get_window_sql_in_workspace(workspace_path)
+        with open(window_sql_path, "w") as fp:
+            fp.write(final_sql)
+
+        index_sql_path = get_index_sql_in_workspace(workspace_path)
+        with open(index_sql_path, "w") as fp:
+            fp.write(f"index(key={partition_by_col}, ttl=50, ttl_type=latest, ts=`{order_by_col}`)")
 
     df[agg_cols] = df[agg_cols].fillna(0)
     return df, agg_cols

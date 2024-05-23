@@ -165,12 +165,13 @@ class OpenMLDBSQLGenerator:
         # TODO include string feature?
         self.processed_column_name_list = self.dfs[self.main_table].columns.values.tolist(
         )
-        for col_name in self.processed_column_name_list:
-            self.column_name_to_sql[col_name] = col_name
+        # for col_name in self.processed_column_name_list:
+            # self.column_name_to_sql[col_name] = col_name
             # sql += col_name + ","
         logging.debug(f'original columns to features: {sql}')
         # # todo 记得泛化一下
         sql += 'reqId' + ","
+        self.column_name_to_sql['reqId'] = 'reqId'
 
         # function list will apply on every window
         for window in self.window_list:
@@ -218,8 +219,9 @@ class OpenMLDBSQLGenerator:
         sql += save_sql
         return sql, feature_save_path
 
-    def decode_time_series_feature_sql_column(self, topk_feature_list):
+    def decode_time_series_feature_sql_column(self, id_name, topk_feature_list):
         sql = "SELECT "
+        sql += id_name + ", "
         for feature_column_name in topk_feature_list:
             # feature column names x -> real sql part "xxx over xx as x"
             sql += self.column_name_to_sql[feature_column_name] + ",\n"

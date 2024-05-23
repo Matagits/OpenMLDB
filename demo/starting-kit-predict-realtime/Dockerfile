@@ -8,7 +8,7 @@ WORKDIR /root/test
 RUN apt-get update && \
     apt-get install -y python3.9 && \
     apt-get install -y python3-pip && \
-    pip install -r requirements.txt && \
+    pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple && \
     ulimit -n 65535
 
 # 设置 Python 3.9 为默认版本
