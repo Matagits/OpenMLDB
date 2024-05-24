@@ -209,8 +209,9 @@ class FeatureEngineerOpenMLDBTransformer(BaseEstimator, TransformerMixin):
 
         partition_by_col = window_dict["partition_by_col"]
         sort_by_col = window_dict["sort_by_col"]
-        df, agg_cols = openmldb_helper.append_window_union_features(df, label, window_dict["number_cols"], 'reqId',
-                                                                    partition_by_col, sort_by_col)
+        db_helper = openmldb_helper.get_helper()
+        df, agg_cols = db_helper.append_window_union_features(df, label, window_dict["number_cols"], 'reqId',
+                                                              partition_by_col, sort_by_col)
         print("Finished to get window union cols from openmldb")
         print(len(df))
         for agg_col in agg_cols:

@@ -1,15 +1,37 @@
+class A:
+    def __init__(self):
+        self.a = 3
 
+    def run(self):
+        print("A run")
+
+    def test(self):
+        self.test1()
+        print("A test")
+
+    def test1(self):
+        pass
+
+
+class B(A):
+    def __init__(self):
+        super().__init__()
+        self.b = 0
+
+    def run(self):
+        # super().run()
+        print("B run")
+
+    def test1(self):
+        print("test1")
 
 
 def test():
-    a = ['1', 2, 3]
-    with open('list', "w") as fp:
-        fp.write(str(a))
-
-    with open('list', "r") as fp:
-        b = eval(fp.read())
-
-    c = 1
+    b = B()
+    print(b.a)
+    b.test()
+    a = A()
+    a.test()
 
 
 

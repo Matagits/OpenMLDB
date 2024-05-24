@@ -107,7 +107,7 @@ workspace_path：模型、数据的加载根文件夹
 
 # TODO
 def load_model_and_data(workspace_path):
-    openmldb_helper.init(workspace_path, online=True)
+    openmldb_helper.init(workspace_path, is_train_mode=False)
     table_schema_path = get_table_schema_in_workspace(workspace_path)
     logger.info(f"Load Table Schema From {table_schema_path}")
     with open(table_schema_path, "r") as fp:
@@ -201,7 +201,7 @@ if __name__ == "__main__":
         train_paths = sys.argv[7:]
 
         os.makedirs(workspace_path, exist_ok=True)
-        openmldb_helper.init(workspace_path, online=False)
+        openmldb_helper.init(workspace_path, is_train_mode=True)
 
         logger.info(f"Loading table schema from {table_schema_path}")
         table_schema = load_table_schema(table_schema_path)
