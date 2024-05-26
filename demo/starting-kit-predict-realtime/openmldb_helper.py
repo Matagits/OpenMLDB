@@ -165,6 +165,14 @@ class TrainHelper(OpenMLDBHelper):
                     'window_type': 'rows_range',
                     'start': '1d PRECEDING',
                     'end': 'CURRENT ROW'
+                },
+                {
+                    'name': 'w2',
+                    'partition_by': partition_by_col,
+                    'order_by': order_by_col,
+                    'window_type': 'rows_range',
+                    'start': '5d PRECEDING',
+                    'end': 'CURRENT ROW'
                 }
             ]
         }
@@ -193,9 +201,9 @@ class TrainHelper(OpenMLDBHelper):
         test_set.to_parquet(offline_feature_path + '/' + test_name, index=False)
 
         id_list = [id_col]
-        topk = 20
+        topk = 30
         logger.error(f'get top {topk} features')
-        topk_features = AutoXTrain(debug=True).get_top_features(
+        topk_features = AutoXTrain(debug=False).get_top_features(
             train_set, test_set, id_list, label_col_name, offline_feature_path, topk)
         logger.error(f'top {len(topk_features)} feas: {topk_features}')
 
@@ -294,9 +302,26 @@ class PredictHelper(OpenMLDBHelper):
 
     def _write_to_db(self, df, table):
         start_time = time.time()
+
         cols = ', '.join(df.columns)
-        df.apply(lambda x: self._insert(x, table, cols), axis=1)
+        # df.apply(lambda x: self._insert(x, table, cols), axis=1)
+
+        # logger.error(f"write df length: {len(df)}")
+        temp = df.apply(lambda x: str(tuple(x)), axis=1)
+        temp_list = temp.values.tolist()
+        # logger.error(f"value length: {len(temp_list)}")
+        self.cursor.execute(f"INSERT INTO {table} ({cols}) VALUES {', '.join(temp_list)};")
+        # self.cursor.execute(f"INSERT INTO {table} ({cols}) VALUES {', '.join(temp_list[:50])};")
+        # self.cursor.execute(f"INSERT INTO {table} ({cols}) VALUES {', '.join(temp_list[50:])};")
+        # logger.error(f"result: {result}")
+        # logger.error(f"result fetchall: {result.fetchall()}")
+
         end_time = time.time()
+
+        # df.sort_values(by=["eventTime", 'reqId'], ascending=[True, True], inplace=True)
+        # temp1 = df.apply(lambda x: str(tuple(x[['reqId', 'eventTime']])), axis=1)
+        # df_str = '\n'.join(temp1.values.tolist())
+        # logger.error(f"df: \n{df_str}")
 
         logger.info("write_to_db cost time: " + str(end_time - start_time))
         logger.info("Data written to openMLDB successfully!")
@@ -314,8 +339,10 @@ class PredictHelper(OpenMLDBHelper):
         df[top_features] = df.apply(self._request_append_features, axis=1)
         end_time = time.time()
         logger.info("get window union features cost time: " + str(end_time - start_time))
+        # logger.error(f"df: \n{df.head()}")
 
         df[top_features] = df[top_features].fillna(0)
+        # logger.error(f"fill na df: \n{df.head()}")
         return df, top_features
 
     def _request_append_features(self, row):
